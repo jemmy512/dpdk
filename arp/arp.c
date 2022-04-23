@@ -1,28 +1,88 @@
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_mbuf.h>
+#include <rte_malloc.h>
+#include <rte_timer.h>
 
 #include <stdio.h>
 #include <arpa/inet.h>
 
-#define ENABLE_SEND 1
-#define ENABLE_ARP  1
+#include "arp.h"
 
 #define NUM_MBUFS (4096-1)
 
 #define BURST_SIZE  32
 
+#define TIMER_RESOLUTION_CYCLES 60000000000ULL // 10ms * 1000 = 10s * 6
+
 #define MAKE_IPV4_ADDR(a, b, c, d) (a + (b<<8) + (c<<16) + (d<<24))
 
 static uint32_t gLocalIp = MAKE_IPV4_ADDR(192, 168, 71, 67);
+static uint8_t gDefaultArpMac[RTE_ETHER_ADDR_LEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 static uint8_t gSrcMac[RTE_ETHER_ADDR_LEN];
 
 int gDpdkPortId = 0;
 
+static struct rte_timer arp_timer;
+
 static const struct rte_eth_conf port_conf_default = {
     .rxmode = { .max_rx_pkt_len = RTE_ETHER_MAX_LEN }
 };
+
+static struct rte_mbuf* make_arp_pkt(
+    struct rte_mempool* mbuf_pool, uint16_t opcode, uint8_t* dst_mac, uint32_t sip, uint32_t dip
+);
+
+static void arp_request_timer_cb(
+    __attribute__((unused)) struct rte_timer* timer, void* arg)
+{
+    struct rte_mempool* mbuf_pool = (struct rte_mempool*)arg;
+
+    uint32_t arp_req_ip = MAKE_IPV4_ADDR(192, 168, 70, 174);
+
+    for (int i = 170; i <= 174; ++i) {
+        uint32_t dstip = (arp_req_ip & 0x00FFFFFF) | (0xFF000000 & (i << 24));
+
+        struct in_addr addr;
+        addr.s_addr = dstip;
+        printf("arp ---> src: %s \n", inet_ntoa(addr));
+
+        struct rte_mbuf* arpbuf = NULL;
+        uint8_t* dst_mac = get_dst_macaddr(dstip);
+
+        if (dst_mac == NULL) {
+            arpbuf = make_arp_pkt(mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, gLocalIp, dstip);
+        } else {
+            arpbuf = make_arp_pkt(mbuf_pool, RTE_ARP_OP_REQUEST, dst_mac, gLocalIp, dstip);
+        }
+
+        rte_eth_tx_burst(gDpdkPortId, 0, &arpbuf, 1);
+        rte_pktmbuf_free(arpbuf);
+    }
+}
+
+static void init_arp_timer(struct rte_mempool* mbuf_pool) {
+    rte_timer_subsystem_init();
+
+    rte_timer_init(&arp_timer);
+
+    uint64_t hz = rte_get_timer_hz();
+    unsigned lcore_id = rte_lcore_id();
+    rte_timer_reset(&arp_timer, hz, PERIODICAL, lcore_id, arp_request_timer_cb, mbuf_pool);
+}
+
+static void arp_timer_tick(void) {
+    static uint64_t prev_tsc = 0, cur_tsc;
+    uint64_t diff_tsc;
+
+    cur_tsc = rte_rdtsc();
+    diff_tsc = cur_tsc - prev_tsc;
+    if (diff_tsc > TIMER_RESOLUTION_CYCLES) {
+        rte_timer_manage();
+        prev_tsc = cur_tsc;
+    }
+}
 
 static void init_port(struct rte_mempool* mbuf_pool) {
     uint16_t dev_count= rte_eth_dev_count_avail();
@@ -54,7 +114,7 @@ static void init_port(struct rte_mempool* mbuf_pool) {
     }
 }
 
-static int encode_arp_pkt(uint8_t* msg, uint8_t* dst_mac, uint32_t sip, uint32_t dip) {
+static int encode_arp_pkt(uint8_t* msg, uint16_t opcode, uint8_t* dst_mac, uint32_t sip, uint32_t dip) {
     // 1 ethhdr
     struct rte_ether_hdr* eth = (struct rte_ether_hdr*)msg;
     rte_memcpy(eth->s_addr.addr_bytes, gSrcMac, RTE_ETHER_ADDR_LEN);
@@ -67,7 +127,7 @@ static int encode_arp_pkt(uint8_t* msg, uint8_t* dst_mac, uint32_t sip, uint32_t
     arp->arp_protocol = htons(RTE_ETHER_TYPE_IPV4);
     arp->arp_hlen = RTE_ETHER_ADDR_LEN;
     arp->arp_plen = sizeof(uint32_t);
-    arp->arp_opcode = htons(2);
+    arp->arp_opcode = htons(opcode);
 
     rte_memcpy(arp->arp_data.arp_sha.addr_bytes, gSrcMac, RTE_ETHER_ADDR_LEN);
     rte_memcpy( arp->arp_data.arp_tha.addr_bytes, dst_mac, RTE_ETHER_ADDR_LEN);
@@ -78,7 +138,9 @@ static int encode_arp_pkt(uint8_t* msg, uint8_t* dst_mac, uint32_t sip, uint32_t
     return 0;
 }
 
-static struct rte_mbuf* make_arp_pkt(struct rte_mempool* mbuf_pool, uint8_t* dst_mac, uint32_t sip, uint32_t dip) {
+static struct rte_mbuf* make_arp_pkt(
+    struct rte_mempool* mbuf_pool, uint16_t opcode, uint8_t* dst_mac, uint32_t sip, uint32_t dip)
+{
     const unsigned total_length = sizeof(struct rte_ether_hdr) + sizeof(struct rte_arp_hdr);
 
     struct rte_mbuf* mbuf = rte_pktmbuf_alloc(mbuf_pool);
@@ -90,9 +152,28 @@ static struct rte_mbuf* make_arp_pkt(struct rte_mempool* mbuf_pool, uint8_t* dst
     mbuf->data_len = total_length;
 
     uint8_t* pkt_data = rte_pktmbuf_mtod(mbuf, uint8_t*);
-    encode_arp_pkt(pkt_data, dst_mac, sip, dip);
+    encode_arp_pkt(pkt_data, opcode, dst_mac, sip, dip);
 
     return mbuf;
+}
+
+static void print_ethaddr(const char* name, const struct rte_ether_addr* eth_addr) {
+    char buf[RTE_ETHER_ADDR_FMT_SIZE];
+    rte_ether_format_addr(buf, RTE_ETHER_ADDR_FMT_SIZE, eth_addr);
+    printf("%s%s", name, buf);
+}
+
+static void debug_arp_table(void) {
+    struct arp_table* table = arp_table_instance();
+
+    for (struct arp_entry* iter = table->entries; iter != NULL; iter = iter->next) {
+
+        struct in_addr addr;
+        addr.s_addr = iter->ip;
+
+        print_ethaddr("arp table --> mac: ", (struct rte_ether_addr*)iter->hwaddr);
+        printf(" ip: %s \n", inet_ntoa(addr));
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -111,15 +192,18 @@ int main(int argc, char* argv[]) {
 
     rte_eth_macaddr_get(gDpdkPortId, (struct rte_ether_addr*)gSrcMac);
 
+    init_arp_timer(mbuf_pool);
+
     while (1) {
+        arp_timer_tick();
+
         struct rte_mbuf* mbufs[BURST_SIZE];
         unsigned num_recvd = rte_eth_rx_burst(gDpdkPortId, 0, mbufs, BURST_SIZE);
         if (num_recvd > BURST_SIZE) {
             rte_exit(EXIT_FAILURE, "Error receiving from eth\n");
         }
 
-        unsigned i = 0;
-        for (i = 0; i < num_recvd; i++) {
+        for (unsigned i = 0; i < num_recvd; i++) {
             struct rte_ether_hdr* ehdr = rte_pktmbuf_mtod(mbufs[i], struct rte_ether_hdr*);
 
             if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
@@ -127,25 +211,32 @@ int main(int argc, char* argv[]) {
                     mbufs[i], struct rte_arp_hdr* , sizeof(struct rte_ether_hdr)
                 );
 
-                struct in_addr addr;
-                addr.s_addr = arphdr->arp_data.arp_tip;
-                printf("arp ---> src: %s ", inet_ntoa(addr));
-
-                addr.s_addr = gLocalIp;
-                printf(" local: %s \n", inet_ntoa(addr));
-
                 if (arphdr->arp_data.arp_tip == gLocalIp) {
-                    struct rte_mbuf* arpbuf = make_arp_pkt(
-                        mbuf_pool,
-                        arphdr->arp_data.arp_sha.addr_bytes,
-                        arphdr->arp_data.arp_tip,
-                        arphdr->arp_data.arp_sip
-                    );
+                    if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REQUEST)) {
+                        printf("arp --> request\n");
 
-                    rte_eth_tx_burst(gDpdkPortId, 0, &arpbuf, 1);
-                    rte_pktmbuf_free(arpbuf);
+                        struct rte_mbuf* arpbuf = make_arp_pkt(
+                            mbuf_pool, RTE_ARP_OP_REPLY,
+                            arphdr->arp_data.arp_sha.addr_bytes,
+                            arphdr->arp_data.arp_tip,
+                            arphdr->arp_data.arp_sip
+                        );
 
-                    rte_pktmbuf_free(mbufs[i]);
+                        rte_eth_tx_burst(gDpdkPortId, 0, &arpbuf, 1);
+                        rte_pktmbuf_free(arpbuf);
+
+                    } else if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) {
+                        printf("arp --> reply\n");
+
+                        uint8_t* hwaddr = get_dst_macaddr(arphdr->arp_data.arp_sip);
+
+                        if (hwaddr == NULL) {
+                            arp_table_add(arphdr->arp_data.arp_sip, arphdr->arp_data.arp_sha.addr_bytes, 0);
+                        }
+                        rte_pktmbuf_free(mbufs[i]);
+
+                        debug_arp_table();
+                    }
                 }
             }
         }
