@@ -41,12 +41,12 @@ static void arp_request_timer_cb(
 
     uint32_t arp_req_ip = MAKE_IPV4_ADDR(192, 168, 70, 174);
 
-    for (int i = 170; i <= 174; ++i) {
+    for (int i = 100; i <= 255; ++i) {
         uint32_t dstip = (arp_req_ip & 0x00FFFFFF) | (0xFF000000 & (i << 24));
 
         struct in_addr addr;
         addr.s_addr = dstip;
-        printf("arp ---> src: %s \n", inet_ntoa(addr));
+        printf("arp ping ---> src: %s \n", inet_ntoa(addr));
 
         struct rte_mbuf* arpbuf = NULL;
         uint8_t* dst_mac = get_dst_macaddr(dstip);
@@ -157,7 +157,8 @@ static struct rte_mbuf* make_arp_pkt(
     return mbuf;
 }
 
-static void print_ethaddr(const char* name, const struct rte_ether_addr* eth_addr) {
+static void print_ethaddr(const char* name, const struct rte_ether_addr* eth_addr)
+{
     char buf[RTE_ETHER_ADDR_FMT_SIZE];
     rte_ether_format_addr(buf, RTE_ETHER_ADDR_FMT_SIZE, eth_addr);
     printf("%s%s", name, buf);
@@ -173,6 +174,43 @@ static void debug_arp_table(void) {
 
         print_ethaddr("arp table --> mac: ", (struct rte_ether_addr*)iter->hwaddr);
         printf(" ip: %s \n", inet_ntoa(addr));
+    }
+}
+
+static void arp_handler(struct rte_mempool* mbuf_pool,  struct rte_mbuf* mbuf, struct rte_ether_hdr* ehdr) {
+    if (ehdr->ether_type != rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
+        return;
+    }
+
+    struct rte_arp_hdr* arphdr = rte_pktmbuf_mtod_offset(
+        mbuf, struct rte_arp_hdr* , sizeof(struct rte_ether_hdr)
+    );
+
+    if (arphdr->arp_data.arp_tip == gLocalIp) {
+        if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REQUEST)) {
+            printf("arp --> recv req\n");
+
+            struct rte_mbuf* arpbuf = make_arp_pkt(
+                mbuf_pool, RTE_ARP_OP_REPLY,
+                arphdr->arp_data.arp_sha.addr_bytes,
+                arphdr->arp_data.arp_tip,
+                arphdr->arp_data.arp_sip
+            );
+
+            rte_eth_tx_burst(gDpdkPortId, 0, &arpbuf, 1);
+            rte_pktmbuf_free(arpbuf);
+
+        } else if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) {
+            printf("arp --> recv reply\n");
+
+            uint8_t* hwaddr = get_dst_macaddr(arphdr->arp_data.arp_sip);
+
+            if (hwaddr == NULL) {
+                arp_table_add(arphdr->arp_data.arp_sip, arphdr->arp_data.arp_sha.addr_bytes, 0);
+            }
+
+            debug_arp_table();
+        }
     }
 }
 
@@ -198,47 +236,15 @@ int main(int argc, char* argv[]) {
         arp_timer_tick();
 
         struct rte_mbuf* mbufs[BURST_SIZE];
-        unsigned num_recvd = rte_eth_rx_burst(gDpdkPortId, 0, mbufs, BURST_SIZE);
-        if (num_recvd > BURST_SIZE) {
+        unsigned nb_rx = rte_eth_rx_burst(gDpdkPortId, 0, mbufs, BURST_SIZE);
+        if (nb_rx > BURST_SIZE) {
             rte_exit(EXIT_FAILURE, "Error receiving from eth\n");
         }
 
-        for (unsigned i = 0; i < num_recvd; i++) {
+        for (unsigned i = 0; i < nb_rx; i++) {
             struct rte_ether_hdr* ehdr = rte_pktmbuf_mtod(mbufs[i], struct rte_ether_hdr*);
-
-            if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
-                struct rte_arp_hdr* arphdr = rte_pktmbuf_mtod_offset(
-                    mbufs[i], struct rte_arp_hdr* , sizeof(struct rte_ether_hdr)
-                );
-
-                if (arphdr->arp_data.arp_tip == gLocalIp) {
-                    if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REQUEST)) {
-                        printf("arp --> request\n");
-
-                        struct rte_mbuf* arpbuf = make_arp_pkt(
-                            mbuf_pool, RTE_ARP_OP_REPLY,
-                            arphdr->arp_data.arp_sha.addr_bytes,
-                            arphdr->arp_data.arp_tip,
-                            arphdr->arp_data.arp_sip
-                        );
-
-                        rte_eth_tx_burst(gDpdkPortId, 0, &arpbuf, 1);
-                        rte_pktmbuf_free(arpbuf);
-
-                    } else if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) {
-                        printf("arp --> reply\n");
-
-                        uint8_t* hwaddr = get_dst_macaddr(arphdr->arp_data.arp_sip);
-
-                        if (hwaddr == NULL) {
-                            arp_table_add(arphdr->arp_data.arp_sip, arphdr->arp_data.arp_sha.addr_bytes, 0);
-                        }
-                        rte_pktmbuf_free(mbufs[i]);
-
-                        debug_arp_table();
-                    }
-                }
-            }
+            arp_handler(mbuf_pool, mbufs[i], ehdr);
+            rte_pktmbuf_free(mbufs[i]);
         }
     }
 }
