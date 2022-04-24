@@ -110,6 +110,42 @@ static struct rte_mbuf* make_udp_pkt(struct rte_mempool* mbuf_pool, uint8_t* dat
     return mbuf;
 }
 
+static void udp_echo(struct rte_mempool* mbuf_pool,  struct rte_mbuf* mbuf, struct rte_ether_hdr* ehdr) {
+    if (ehdr->ether_type != rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4)) {
+        return;
+    }
+
+    struct rte_ipv4_hdr* iphdr =  rte_pktmbuf_mtod_offset(
+        mbuf, struct rte_ipv4_hdr* , sizeof(struct rte_ether_hdr)
+    );
+
+    if (iphdr->next_proto_id == IPPROTO_UDP) {
+        struct rte_udp_hdr* udphdr = (struct rte_udp_hdr*)(iphdr + 1);
+
+        rte_memcpy(gDstMac, ehdr->s_addr.addr_bytes, RTE_ETHER_ADDR_LEN);
+
+        rte_memcpy(&gSrcIp, &iphdr->dst_addr, sizeof(uint32_t));
+        rte_memcpy(&gDstIp, &iphdr->src_addr, sizeof(uint32_t));
+
+        rte_memcpy(&gSrcPort, &udphdr->dst_port, sizeof(uint16_t));
+        rte_memcpy(&gDstPort, &udphdr->src_port, sizeof(uint16_t));
+
+        uint16_t length = ntohs(udphdr->dgram_len);
+        *((char*)udphdr + length) = '\0';
+
+        struct in_addr addr;
+        addr.s_addr = iphdr->src_addr;
+        printf("src: %s:%d, ", inet_ntoa(addr), ntohs(udphdr->src_port));
+
+        addr.s_addr = iphdr->dst_addr;
+        printf("dst: %s:%d, data: %s\n", inet_ntoa(addr), ntohs(udphdr->dst_port), (char*)(udphdr+1));
+
+        struct rte_mbuf* txbuf = make_udp_pkt(mbuf_pool, (uint8_t*)(udphdr+1), length);
+        rte_eth_tx_burst(gDpdkPortId, 0, &txbuf, 1);
+        rte_pktmbuf_free(txbuf);
+    }
+}
+
 int main(int argc, char* argv[]) {
     if (rte_eal_init(argc, argv) < 0) {
         rte_exit(EXIT_FAILURE, "Error with EAL init\n");
@@ -128,48 +164,15 @@ int main(int argc, char* argv[]) {
 
     while (1) {
         struct rte_mbuf* mbufs[BURST_SIZE];
-        unsigned num_recvd = rte_eth_rx_burst(gDpdkPortId, 0, mbufs, BURST_SIZE);
-        if (num_recvd > BURST_SIZE) {
+        unsigned nb_rx = rte_eth_rx_burst(gDpdkPortId, 0, mbufs, BURST_SIZE);
+        if (nb_rx > BURST_SIZE) {
             rte_exit(EXIT_FAILURE, "Error receiving from eth\n");
         }
 
-        unsigned i = 0;
-        for (i = 0; i < num_recvd; i++) {
+        for (unsigned i = 0; i < nb_rx; i++) {
             struct rte_ether_hdr* ehdr = rte_pktmbuf_mtod(mbufs[i], struct rte_ether_hdr*);
-            if (ehdr->ether_type != rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4)) {
-                continue;
-            }
-
-            struct rte_ipv4_hdr* iphdr =  rte_pktmbuf_mtod_offset(
-                mbufs[i], struct rte_ipv4_hdr* , sizeof(struct rte_ether_hdr)
-            );
-
-            if (iphdr->next_proto_id == IPPROTO_UDP) {
-                struct rte_udp_hdr* udphdr = (struct rte_udp_hdr*)(iphdr + 1);
-
-                rte_memcpy(gDstMac, ehdr->s_addr.addr_bytes, RTE_ETHER_ADDR_LEN);
-
-                rte_memcpy(&gSrcIp, &iphdr->dst_addr, sizeof(uint32_t));
-                rte_memcpy(&gDstIp, &iphdr->src_addr, sizeof(uint32_t));
-
-                rte_memcpy(&gSrcPort, &udphdr->dst_port, sizeof(uint16_t));
-                rte_memcpy(&gDstPort, &udphdr->src_port, sizeof(uint16_t));
-
-                uint16_t length = ntohs(udphdr->dgram_len);
-                *((char*)udphdr + length) = '\0';
-
-                struct in_addr addr;
-                addr.s_addr = iphdr->src_addr;
-                printf("src: %s:%d, ", inet_ntoa(addr), ntohs(udphdr->src_port));
-
-                addr.s_addr = iphdr->dst_addr;
-                printf("dst: %s:%d, data: %s\n", inet_ntoa(addr), ntohs(udphdr->dst_port), (char*)(udphdr+1));
-
-                struct rte_mbuf* txbuf = make_udp_pkt(mbuf_pool, (uint8_t*)(udphdr+1), length);
-                rte_eth_tx_burst(gDpdkPortId, 0, &txbuf, 1);
-                rte_pktmbuf_free(txbuf);
-                rte_pktmbuf_free(mbufs[i]);
-            }
+            udp_echo(mbuf_pool, mbufs[i], ehdr);
+            rte_pktmbuf_free(mbufs[i]);
         }
     }
 }

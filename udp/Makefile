@@ -2,10 +2,10 @@
 # Copyright(c) 2010-2014 Intel Corporation
 
 # binary name
-APP = udp_send
+APP = dpdk_udp_echo
 
 # all source are stored in SRCS-y
-SRCS-y := send.c
+SRCS-y := udp_echo.c
 
 # Build using pkg-config variables if possible
 ifeq ($(shell pkg-config --exists libdpdk && echo 0),0)
