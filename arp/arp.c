@@ -30,7 +30,7 @@ static const struct rte_eth_conf port_conf_default = {
     .rxmode = { .max_rx_pkt_len = RTE_ETHER_MAX_LEN }
 };
 
-static struct rte_mbuf* make_arp_pkt(
+static struct rte_mbuf* make_arp_mbuf(
     struct rte_mempool* mbuf_pool, uint16_t opcode, uint8_t* dst_mac, uint32_t sip, uint32_t dip
 );
 
@@ -52,9 +52,9 @@ static void arp_request_timer_cb(
         uint8_t* dst_mac = get_dst_macaddr(dstip);
 
         if (dst_mac == NULL) {
-            arpbuf = make_arp_pkt(mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, gLocalIp, dstip);
+            arpbuf = make_arp_mbuf(mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, gLocalIp, dstip);
         } else {
-            arpbuf = make_arp_pkt(mbuf_pool, RTE_ARP_OP_REQUEST, dst_mac, gLocalIp, dstip);
+            arpbuf = make_arp_mbuf(mbuf_pool, RTE_ARP_OP_REQUEST, dst_mac, gLocalIp, dstip);
         }
 
         rte_eth_tx_burst(gDpdkPortId, 0, &arpbuf, 1);
@@ -138,7 +138,7 @@ static int encode_arp_pkt(uint8_t* msg, uint16_t opcode, uint8_t* dst_mac, uint3
     return 0;
 }
 
-static struct rte_mbuf* make_arp_pkt(
+static struct rte_mbuf* make_arp_mbuf(
     struct rte_mempool* mbuf_pool, uint16_t opcode, uint8_t* dst_mac, uint32_t sip, uint32_t dip)
 {
     const unsigned total_length = sizeof(struct rte_ether_hdr) + sizeof(struct rte_arp_hdr);
@@ -190,7 +190,7 @@ static void arp_handler(struct rte_mempool* mbuf_pool,  struct rte_mbuf* mbuf, s
         if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REQUEST)) {
             printf("arp --> recv req\n");
 
-            struct rte_mbuf* arpbuf = make_arp_pkt(
+            struct rte_mbuf* arpbuf = make_arp_mbuf(
                 mbuf_pool, RTE_ARP_OP_REPLY,
                 arphdr->arp_data.arp_sha.addr_bytes,
                 arphdr->arp_data.arp_tip,
