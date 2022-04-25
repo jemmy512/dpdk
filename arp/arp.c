@@ -49,7 +49,7 @@ static void arp_request_timer_cb(
         printf("arp ping ---> src: %s \n", inet_ntoa(addr));
 
         struct rte_mbuf* arpbuf = NULL;
-        uint8_t* dst_mac = get_dst_macaddr(dstip);
+        uint8_t* dst_mac = get_arp_mac(dstip);
 
         if (dst_mac == NULL) {
             arpbuf = make_arp_mbuf(mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, gLocalIp, dstip);
@@ -203,7 +203,7 @@ static void arp_handler(struct rte_mempool* mbuf_pool,  struct rte_mbuf* mbuf, s
         } else if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) {
             printf("arp --> recv reply\n");
 
-            uint8_t* hwaddr = get_dst_macaddr(arphdr->arp_data.arp_sip);
+            uint8_t* hwaddr = get_arp_mac(arphdr->arp_data.arp_sip);
 
             if (hwaddr == NULL) {
                 arp_table_add(arphdr->arp_data.arp_sip, arphdr->arp_data.arp_sha.addr_bytes, 0);
