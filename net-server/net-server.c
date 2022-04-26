@@ -11,32 +11,17 @@
 #include <stdio.h>
 #include <pthread.h>
 
+#include "socket.h"
 #include "list.h"
+#include "tcp.h"
+#include "udp.h"
 
-#define NUM_MBUFS (4096-1)
-
-#define BURST_SIZE 32
-#define RING_SIZE 1024
-
-#define UDP_APP_RECV_BUFFER_SIZE 128
-
-#define TIMER_RESOLUTION_CYCLES 120000000000ULL // 10ms * 1000 = 10s * 6
-
-#define Local_IP_Addr "192.168.71.67"
-
-#define MAKE_IPV4_ADDR(a, b, c, d) (a + (b<<8) + (c<<16) + (d<<24))
-
-static uint8_t gSrcMac[RTE_ETHER_ADDR_LEN];
+uint8_t gSrcMac[RTE_ETHER_ADDR_LEN];
 
 int gDpdkPortId = 0;
 
 static const struct rte_eth_conf port_conf_default = {
     .rxmode = {.max_rx_pkt_len = RTE_ETHER_MAX_LEN }
-};
-
-struct inout_ring {
-    struct rte_ring* in;
-    struct rte_ring* out;
 };
 
 static struct inout_ring* ring_ins = NULL;
@@ -62,48 +47,9 @@ static struct inout_ring* get_ring(void) {
     return ring_ins;
 }
 
+struct localhost* lhost = NULL;
 
-struct offload {
-    uint32_t sip;
-    uint32_t dip;
-
-    uint16_t sport;
-    uint16_t dport;
-
-    int protocol;
-
-    unsigned char* data;
-    uint16_t length;
-};
-
-struct localhost {
-    int fd;
-    uint32_t localip;
-    uint8_t localmac[RTE_ETHER_ADDR_LEN];
-    uint16_t localport;
-
-    uint8_t protocol;
-
-    struct rte_ring* sndbuf;
-    struct rte_ring* rcvbuf;
-
-    struct localhost* prev;
-    struct localhost* next;
-
-    pthread_cond_t cond;
-    pthread_mutex_t mutex;
-};
-
-static struct localhost* lhost = NULL;
-
-#define DEFAULT_FD_NUM	3
-
-static int get_fd_frombitmap(void) {
-    int fd = DEFAULT_FD_NUM;
-    return fd;
-}
-
-static struct localhost* get_hostinfo_by_fd(int sockfd) {
+struct localhost* get_hostinfo_by_fd(int sockfd) {
     for (struct localhost* host = lhost; host != NULL; host = host->next) {
         if (sockfd == host->fd) {
             return host;
@@ -113,7 +59,7 @@ static struct localhost* get_hostinfo_by_fd(int sockfd) {
     return NULL;
 }
 
-static struct localhost* get_hostinfo_by_fd_by_ip_port(uint32_t dip, uint16_t port, uint8_t proto) {
+struct localhost* get_hostinfo_by_fd_by_ip_port(uint32_t dip, uint16_t port, uint8_t proto) {
     for (struct localhost* host = lhost; host != NULL; host = host->next) {
         if (dip == host->localip && port == host->localport && proto == host->protocol) {
             return host;
@@ -121,221 +67,6 @@ static struct localhost* get_hostinfo_by_fd_by_ip_port(uint32_t dip, uint16_t po
     }
 
     return NULL;
-}
-
-static int nsocket(__attribute__((unused)) int domain, int type, __attribute__((unused)) int protocol) {
-    const int fd = get_fd_frombitmap();
-
-    struct localhost* host = rte_malloc("localhost", sizeof(struct localhost), 0);
-    if (host == NULL) {
-        return -1;
-    }
-    memset(host, 0, sizeof(struct localhost));
-
-    host->fd = fd;
-
-    if (type == SOCK_DGRAM)
-        host->protocol = IPPROTO_UDP;
-    else if (type == SOCK_STREAM)
-        host->protocol = IPPROTO_TCP;
-
-    host->rcvbuf = rte_ring_create("rcv buffer", RING_SIZE, rte_socket_id(), 0);
-    if (host->rcvbuf == NULL) {
-        rte_free(host);
-        return -1;
-    }
-
-    host->sndbuf = rte_ring_create("snd buffer", RING_SIZE, rte_socket_id(), 0);
-    if (host->sndbuf == NULL) {
-        rte_ring_free(host->rcvbuf);
-        rte_free(host);
-        return -1;
-    }
-
-    pthread_cond_t init_cond = PTHREAD_COND_INITIALIZER;
-    rte_memcpy(&host->cond, &init_cond, sizeof(pthread_cond_t));
-
-    pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
-    rte_memcpy(&host->mutex, &init_mutex, sizeof(pthread_mutex_t));
-
-    list_add(host, lhost);
-
-    return fd;
-}
-
-static int nbind(int sockfd, const struct sockaddr* addr, __attribute__((unused)) socklen_t addrlen) {
-    struct localhost* host = get_hostinfo_by_fd(sockfd);
-    if (host == NULL)
-        return -1;
-
-    const struct sockaddr_in* laddr = (const struct sockaddr_in*)addr;
-    host->localport = laddr->sin_port;
-    rte_memcpy(&host->localip, &laddr->sin_addr.s_addr, sizeof(uint32_t));
-    rte_memcpy(host->localmac, gSrcMac, RTE_ETHER_ADDR_LEN);
-
-    return 0;
-}
-
-static ssize_t nrecvfrom(
-    int sockfd, void* buf, size_t len, __attribute__((unused)) int flags,
-    struct sockaddr* src_addr, __attribute__((unused)) socklen_t* addrlen)
-{
-    struct localhost* host = get_hostinfo_by_fd(sockfd);
-    if (host == NULL) return -1;
-
-    struct offload* ol = NULL;
-    unsigned char* ptr = NULL;
-
-    struct sockaddr_in* saddr = (struct sockaddr_in*)src_addr;
-
-    int nb = -1;
-    pthread_mutex_lock(&host->mutex);
-    while ((nb = rte_ring_mc_dequeue(host->rcvbuf, (void**)&ol)) < 0) {
-        pthread_cond_wait(&host->cond, &host->mutex);
-    }
-    pthread_mutex_unlock(&host->mutex);
-
-    saddr->sin_port = ol->sport;
-    rte_memcpy(&saddr->sin_addr.s_addr, &ol->sip, sizeof(uint32_t));
-
-    if (len < ol->length) {
-        rte_memcpy(buf, ol->data, len);
-
-        ptr = rte_malloc("unsigned char* ", ol->length-len, 0);
-        rte_memcpy(ptr, ol->data+len, ol->length-len);
-
-        ol->length -= len;
-        rte_free(ol->data);
-        ol->data = ptr;
-
-        rte_ring_mp_enqueue(host->rcvbuf, ol);
-    } else {
-        len = ol->length;
-        rte_memcpy(buf, ol->data, len);
-
-        rte_free(ol->data);
-        rte_free(ol);
-    }
-
-    return len;
-}
-
-static ssize_t nsendto(
-    int sockfd, const void* buf, size_t len, __attribute__((unused)) int flags,
-    const struct sockaddr* dest_addr, __attribute__((unused)) socklen_t addrlen)
-{
-    struct localhost* host = get_hostinfo_by_fd(sockfd);
-    if (host == NULL)
-        return -1;
-
-    const struct sockaddr_in* daddr = (const struct sockaddr_in*)dest_addr;
-
-    struct offload* ol = rte_malloc("offload", sizeof(struct offload), 0);
-    if (ol == NULL)
-        return -1;
-
-    ol->dip = daddr->sin_addr.s_addr;
-    ol->dport = daddr->sin_port;
-    ol->sip = host->localip;
-    ol->sport = host->localport;
-    ol->length = len;
-
-    struct in_addr addr;
-    addr.s_addr = ol->dip;
-    printf("nsendto ---> src [%s:%d], data: %s", inet_ntoa(addr), ntohs(ol->dport), (const char*)buf);
-
-    ol->data = rte_malloc("unsigned char* ", len, 0);
-    if (ol->data == NULL) {
-        rte_free(ol);
-        return -1;
-    }
-
-    rte_memcpy(ol->data, buf, len);
-
-    rte_ring_mp_enqueue(host->sndbuf, ol);
-
-    return len;
-}
-
-static int nclose(int fd) {
-    struct localhost* host = get_hostinfo_by_fd(fd);
-    if (host == NULL) {
-        return -1;
-    }
-
-    list_rm(host, lhost);
-
-    if (host->rcvbuf) {
-        rte_ring_free(host->rcvbuf);
-    }
-    if (host->sndbuf) {
-        rte_ring_free(host->sndbuf);
-    }
-
-    rte_free(host);
-
-    return 0;
-}
-
-static int encode_udp_pkt(uint8_t* msg, uint32_t sip, uint32_t dip,
-    uint16_t sport, uint16_t dport, uint8_t* src_mac, uint8_t* dst_mac,
-    unsigned char* data, uint16_t total_len)
-{
-    // 1 ethhdr
-    struct rte_ether_hdr* ehdr = (struct rte_ether_hdr*)msg;
-    rte_memcpy(ehdr->s_addr.addr_bytes, src_mac, RTE_ETHER_ADDR_LEN);
-    rte_memcpy(ehdr->d_addr.addr_bytes, dst_mac, RTE_ETHER_ADDR_LEN);
-    ehdr->ether_type = htons(RTE_ETHER_TYPE_IPV4);
-
-    // 2 iphdr
-    struct rte_ipv4_hdr* iphdr = (struct rte_ipv4_hdr*)(msg + sizeof(struct rte_ether_hdr));
-    iphdr->version_ihl = 0x45;
-    iphdr->type_of_service = 0;
-    iphdr->total_length = htons(total_len - sizeof(struct rte_ether_hdr));
-    iphdr->packet_id = 0;
-    iphdr->fragment_offset = 0;
-    iphdr->time_to_live = 64;
-    iphdr->next_proto_id = IPPROTO_UDP;
-    iphdr->src_addr = sip;
-    iphdr->dst_addr = dip;
-
-    iphdr->hdr_checksum = 0;
-    iphdr->hdr_checksum = rte_ipv4_cksum(iphdr);
-
-    // 3 udphdr
-    struct rte_udp_hdr* udphdr = (struct rte_udp_hdr*)(msg + sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr));
-    udphdr->src_port = sport;
-    udphdr->dst_port = dport;
-    uint16_t udplen = total_len - sizeof(struct rte_ether_hdr) - sizeof(struct rte_ipv4_hdr);
-    udphdr->dgram_len = htons(udplen);
-
-    rte_memcpy((uint8_t*)(udphdr+1), data, udplen);
-
-    udphdr->dgram_cksum = 0;
-    udphdr->dgram_cksum = rte_ipv4_udptcp_cksum(iphdr, udphdr);
-
-    return 0;
-}
-
-static struct rte_mbuf* make_udp_mbuf(
-    struct rte_mempool* mbuf_pool, uint32_t sip, uint32_t dip,
-    uint16_t sport, uint16_t dport, uint8_t* src_mac, uint8_t* dst_mac,
-    uint8_t* data, uint16_t length)
-{
-    const unsigned total_len = length + 42;
-
-    struct rte_mbuf* mbuf = rte_pktmbuf_alloc(mbuf_pool);
-    if (!mbuf) {
-        rte_exit(EXIT_FAILURE, "rte_pktmbuf_alloc\n");
-    }
-    mbuf->pkt_len = total_len;
-    mbuf->data_len = total_len;
-
-    uint8_t* pktdata = rte_pktmbuf_mtod(mbuf, uint8_t*);
-
-    encode_udp_pkt(pktdata, sip, dip, sport, dport, src_mac, dst_mac, data, total_len);
-
-    return mbuf;
 }
 
 static int udp_pkt_handler(struct rte_mbuf* udpmbuf) {

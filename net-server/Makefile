@@ -5,7 +5,7 @@
 APP = dpdk_server
 
 # all source are stored in SRCS-y
-SRCS-y := net-server.c
+SRCS-y := net-server.c tcp.c socket.c udp.c
 
 # Build using pkg-config variables if possible
 ifeq ($(shell pkg-config --exists libdpdk && echo 0),0)
