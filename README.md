@@ -1,3 +1,7 @@
+# Architecture
+
+![](./images/net-server-arch.png)
+
 # TCP
 ```
 0                   1                   2                   3

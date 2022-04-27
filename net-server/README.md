@@ -1,1 +1,0 @@
-![](../images/net-server-arch.png)
