@@ -29,7 +29,7 @@ typedef enum _TCP_STATUS {
 
     TCP_STATUS_CLOSE_WAIT,
     TCP_STATUS_LAST_ACK
-} NG_TCP_STATUS;
+} TCP_STATUS;
 
 
 struct tcp_stream {
@@ -44,10 +44,10 @@ struct tcp_stream {
     uint16_t sport;
     uint32_t sip;
 
-    uint32_t snd_nxt; // seqnum
-    uint32_t rcv_nxt; // acknum
+    uint32_t snd_nxt;
+    uint32_t rcv_nxt;
 
-    NG_TCP_STATUS status;
+    TCP_STATUS status;
 #if 0
     union {
 
@@ -70,7 +70,6 @@ struct tcp_stream {
 
     pthread_cond_t cond;
     pthread_mutex_t mutex;
-
 };
 
 struct tcp_table {
@@ -95,7 +94,6 @@ struct tcp_fragment {
 
     unsigned char* data;
     uint32_t data_len;
-
 };
 
 struct tcp_table* get_tcp_table(void);
@@ -115,7 +113,7 @@ int tcp_handle_last_ack(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr);
 
 int tcp_send_ackpkt(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr);
 
-int main_tcp_server(__attribute__((unused))  void* arg);
+int main_tcp_server(__attribute__((unused)) void* arg);
 int tcp_server_out(struct rte_mempool *mbuf_pool);
 
 struct tcp_stream* get_accept_stream(uint16_t dport);

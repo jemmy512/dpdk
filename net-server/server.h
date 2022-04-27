@@ -8,10 +8,6 @@
 
 #define BURST_SIZE 32
 
-#define Local_IP_Addr "192.168.71.67"
-
-#define MAKE_IPV4_ADDR(a, b, c, d) (a + (b<<8) + (c<<16) + (d<<24))
-
 struct inout_ring* get_server_ring(void);
 
 void init_port(struct rte_mempool* mbuf_pool);

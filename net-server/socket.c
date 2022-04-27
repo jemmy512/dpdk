@@ -17,7 +17,7 @@ int net_socket(__attribute__((unused)) int domain, int type, __attribute__((unus
     int fd = get_fd_from_bitmap();
 
     if (type == SOCK_DGRAM) {
-        struct localhost *host = rte_malloc("localhost", sizeof(struct localhost), 0);
+        struct localhost* host = rte_malloc("localhost", sizeof(struct localhost), 0);
         if (host == NULL) {
            goto release_fd;
         }
@@ -47,7 +47,7 @@ int net_socket(__attribute__((unused)) int domain, int type, __attribute__((unus
 
         list_add(host, host_table);
     } else if (type == SOCK_STREAM) {
-        struct tcp_stream *stream = rte_malloc("tcp_stream", sizeof(struct tcp_stream), 0);
+        struct tcp_stream* stream = rte_malloc("tcp_stream", sizeof(struct tcp_stream), 0);
         if (stream == NULL) {
             goto release_fd;
         }
@@ -75,7 +75,7 @@ int net_socket(__attribute__((unused)) int domain, int type, __attribute__((unus
         pthread_mutex_t blank_mutex = PTHREAD_MUTEX_INITIALIZER;
         rte_memcpy(&stream->mutex, &blank_mutex, sizeof(pthread_mutex_t));
 
-        struct tcp_table *table = get_tcp_table();
+        struct tcp_table* table = get_tcp_table();
         list_add(stream, table->tcb_set);
         // get_stream_from_fd();
     }
@@ -89,23 +89,20 @@ release_fd:
 }
 
 int net_bind(int sockfd, const struct sockaddr* addr, __attribute__((unused)) socklen_t addrlen) {
-	void *hostinfo =  get_hostinfo_by_fd(sockfd);
+	void* hostinfo =  get_hostinfo_by_fd(sockfd);
 	if (hostinfo == NULL)
         return -1;
 
-	struct localhost *host = (struct localhost *)hostinfo;
+	struct localhost* host = (struct localhost*)hostinfo;
 
 	if (host->protocol == IPPROTO_UDP) {
-		const struct sockaddr_in *laddr = (const struct sockaddr_in *)addr;
+		const struct sockaddr_in* laddr = (const struct sockaddr_in*)addr;
 		host->localport = laddr->sin_port;
 		rte_memcpy(&host->localip, &laddr->sin_addr.s_addr, sizeof(uint32_t));
 		rte_memcpy(host->localmac, get_local_mac(), RTE_ETHER_ADDR_LEN);
-
 	} else if (host->protocol == IPPROTO_TCP) {
-
-		struct tcp_stream *stream = (struct tcp_stream *)hostinfo;
-
-		const struct sockaddr_in *laddr = (const struct sockaddr_in *)addr;
+		struct tcp_stream* stream = (struct tcp_stream*)hostinfo;
+		const struct sockaddr_in* laddr = (const struct sockaddr_in*)addr;
 		stream->dport = laddr->sin_port;
 		rte_memcpy(&stream->dip, &laddr->sin_addr.s_addr, sizeof(uint32_t));
 		rte_memcpy(stream->localmac, get_local_mac(), RTE_ETHER_ADDR_LEN);
@@ -115,7 +112,6 @@ int net_bind(int sockfd, const struct sockaddr* addr, __attribute__((unused)) so
 	}
 
 	return 0;
-
 }
 
 ssize_t net_recvfrom(
@@ -220,12 +216,11 @@ int net_close(int fd) {
 }
 
 int net_listen(int sockfd, __attribute__((unused)) int backlog) { //
+    void* hostinfo = get_hostinfo_by_fd(sockfd);
+    if (hostinfo == NULL)
+        return -1;
 
-    void *hostinfo =  get_hostinfo_by_fd(sockfd);
-    if (hostinfo == NULL) return -1;
-
-
-    struct tcp_stream *stream = (struct tcp_stream *)hostinfo;
+    struct tcp_stream* stream = (struct tcp_stream*)hostinfo;
     if (stream->protocol == IPPROTO_TCP) {
         stream->status = TCP_STATUS_LISTEN;
     }
@@ -233,15 +228,15 @@ int net_listen(int sockfd, __attribute__((unused)) int backlog) { //
     return 0;
 }
 
-int net_accept(int sockfd, struct sockaddr *addr, __attribute__((unused)) socklen_t *addrlen) {
+int net_accept(int sockfd, struct sockaddr* addr, __attribute__((unused)) socklen_t* addrlen) {
+    void* hostinfo =  get_hostinfo_by_fd(sockfd);
+    if (hostinfo == NULL)
+        return -1;
 
-    void *hostinfo =  get_hostinfo_by_fd(sockfd);
-    if (hostinfo == NULL) return -1;
-
-    struct tcp_stream *stream = (struct tcp_stream *)hostinfo;
+    struct tcp_stream* stream = (struct tcp_stream*)hostinfo;
     if (stream->protocol == IPPROTO_TCP) {
 
-        struct tcp_stream *apt = NULL;
+        struct tcp_stream* apt = NULL;
 
         pthread_mutex_lock(&stream->mutex);
         while((apt = get_accept_stream(stream->dport)) == NULL) {
@@ -251,7 +246,7 @@ int net_accept(int sockfd, struct sockaddr *addr, __attribute__((unused)) sockle
 
         apt->fd = get_fd_from_bitmap();
 
-        struct sockaddr_in *saddr = (struct sockaddr_in *)addr;
+        struct sockaddr_in* saddr = (struct sockaddr_in*)addr;
         saddr->sin_port = apt->sport;
         rte_memcpy(&saddr->sin_addr.s_addr, &apt->sip, sizeof(uint32_t));
 
@@ -261,18 +256,16 @@ int net_accept(int sockfd, struct sockaddr *addr, __attribute__((unused)) sockle
     return -1;
 }
 
-
-ssize_t net_send(int sockfd, const void *buf, size_t len,__attribute__((unused)) int flags) {
-
+ssize_t net_send(int sockfd, const void* buf, size_t len,__attribute__((unused)) int flags) {
     ssize_t length = 0;
 
-    void *hostinfo =  get_hostinfo_by_fd(sockfd);
-    if (hostinfo == NULL) return -1;
+    void* hostinfo = get_hostinfo_by_fd(sockfd);
+    if (hostinfo == NULL)
+        return -1;
 
-    struct tcp_stream *stream = (struct tcp_stream *)hostinfo;
+    struct tcp_stream* stream = (struct tcp_stream*)hostinfo;
     if (stream->protocol == IPPROTO_TCP) {
-
-        struct tcp_fragment *fragment = rte_malloc("tcp_fragment", sizeof(struct tcp_fragment), 0);
+        struct tcp_fragment* fragment = rte_malloc("tcp_fragment", sizeof(struct tcp_fragment), 0);
         if (fragment == NULL) {
             return -2;
         }
@@ -289,8 +282,7 @@ ssize_t net_send(int sockfd, const void *buf, size_t len,__attribute__((unused))
         fragment->windows = TCP_INITIAL_WINDOW;
         fragment->hdrlen_off = 0x50;
 
-
-        fragment->data = rte_malloc("unsigned char *", len+1, 0);
+        fragment->data = rte_malloc("unsigned char* ", len+1, 0);
         if (fragment->data == NULL) {
             rte_free(fragment);
             return -1;
@@ -308,29 +300,26 @@ ssize_t net_send(int sockfd, const void *buf, size_t len,__attribute__((unused))
     return length;
 }
 
-// recv 32
-// recv
-ssize_t net_recv(int sockfd, void *buf, size_t len, __attribute__((unused)) int flags) {
+ssize_t net_recv(int sockfd, void* buf, size_t len, __attribute__((unused)) int flags) {
     ssize_t length = 0;
 
-    void *hostinfo =  get_hostinfo_by_fd(sockfd);
+    void* hostinfo =  get_hostinfo_by_fd(sockfd);
     if (hostinfo == NULL)
         return -1;
 
-    struct tcp_stream *stream = (struct tcp_stream *)hostinfo;
+    struct tcp_stream* stream = (struct tcp_stream*)hostinfo;
     if (stream->protocol == IPPROTO_TCP) {
-        struct tcp_fragment *fragment = NULL;
+        struct tcp_fragment* fragment = NULL;
         int nb_rcv = 0;
 
         pthread_mutex_lock(&stream->mutex);
-        while ((nb_rcv = rte_ring_mc_dequeue(stream->rcvbuf, (void **)&fragment)) < 0) {
+        while ((nb_rcv = rte_ring_mc_dequeue(stream->rcvbuf, (void* *)&fragment)) < 0) {
             pthread_cond_wait(&stream->cond, &stream->mutex);
         }
         pthread_mutex_unlock(&stream->mutex);
 
         if (fragment->data_len > len) {
             rte_memcpy(buf, fragment->data, len);
-
 
             for(uint32_t i = 0; i < fragment->data_len - len; i ++) {
                 fragment->data[i] = fragment->data[len+i];
@@ -358,14 +347,14 @@ ssize_t net_recv(int sockfd, void *buf, size_t len, __attribute__((unused)) int 
 }
 
 void* get_hostinfo_by_fd(int sockfd) {
-	for (struct localhost *host = host_table; host != NULL; host = host->next) {
+	for (struct localhost* host = host_table; host != NULL; host = host->next) {
 		if (sockfd == host->fd) {
 			return host;
 		}
 	}
 
-	struct tcp_stream *stream = NULL;
-	struct tcp_table *table = get_tcp_table();
+	struct tcp_stream* stream = NULL;
+	struct tcp_table* table = get_tcp_table();
 
 	for (stream = table->tcb_set; stream != NULL; stream = stream->next) {
 		if (sockfd == stream->fd) {

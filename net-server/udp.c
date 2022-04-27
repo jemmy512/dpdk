@@ -4,6 +4,7 @@
 #include <rte_ip.h>
 
 #include "udp.h"
+#include "arp.h"
 #include "context.h"
 
 #define UDP_APP_RECV_BUFFER_SIZE 128
@@ -68,7 +69,6 @@ struct rte_mbuf* make_udp_mbuf(
 
     return mbuf;
 }
-
 
 int udp_pkt_handler(struct rte_mbuf* udpmbuf) {
     struct rte_ipv4_hdr* iphdr =  rte_pktmbuf_mtod_offset(
@@ -135,7 +135,7 @@ int main_udp_server(__attribute__((unused)) void* arg) {
 
     localaddr.sin_port = htons(8889);
     localaddr.sin_family = AF_INET;
-    localaddr.sin_addr.s_addr = inet_addr(Local_IP_Addr);
+    localaddr.sin_addr.s_addr = get_local_ip();
 
     net_bind(connfd, (struct sockaddr*)&localaddr, sizeof(localaddr));
 
@@ -164,17 +164,16 @@ int udp_server_out(struct rte_mempool* mbuf_pool) {
         addr.s_addr = ol->dip;
         printf("udp_out ---> src [%s:%d]", inet_ntoa(addr), ntohs(ol->dport));
 
-        // TODO uint8_t* dst_mac = get_arp_entry(ol->dip);
-        uint8_t dst_mac[RTE_ETHER_ADDR_LEN] = { 0x88, 0x66, 0x5a, 0x53, 0x3a, 0xd0 };
+        uint8_t* dst_mac = get_arp_mac(ol->dip);
         if (dst_mac == NULL) {
-            // struct rte_mbuf* arpbuf = send_arp(
-            //     mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, ol->sip, ol->dip
-            // );
+            struct rte_mbuf* arpbuf = make_arp_mbuf(
+                mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, ol->sip, ol->dip
+            );
 
-            // struct inout_ring* ring = get_server_ring();
-            // rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
+            struct inout_ring* ring = get_server_ring();
+            rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
 
-            // rte_ring_mp_enqueue(host->sndbuf, ol);
+            rte_ring_mp_enqueue(host->sndbuf, ol);
         } else {
             struct rte_mbuf* udpbuf = make_udp_mbuf(
                 mbuf_pool, ol->sip, ol->dip, ol->sport, ol->dport,

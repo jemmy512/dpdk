@@ -48,42 +48,42 @@ int tcp_pkt_handler(struct rte_mbuf* tcpmbuf) {
     }
 
     switch (stream->status) {
-        case TCP_STATUS_CLOSED: //client
+        case TCP_STATUS_CLOSED:
             break;
 
-        case TCP_STATUS_LISTEN: // server
+        case TCP_STATUS_LISTEN:
             tcp_handle_listen(stream, tcphdr, iphdr);
             break;
 
-        case TCP_STATUS_SYN_RCVD: // server
+        case TCP_STATUS_SYN_RCVD:
             tcp_handle_syn_rcvd(stream, tcphdr);
             break;
 
-        case TCP_STATUS_SYN_SENT: // client
+        case TCP_STATUS_SYN_SENT:
             break;
 
-        case TCP_STATUS_ESTABLISHED: { // server | client
+        case TCP_STATUS_ESTABLISHED: {
             int tcplen = ntohs(iphdr->total_length) - sizeof(struct rte_ipv4_hdr);
             tcp_handle_established(stream, tcphdr, tcplen);
             break;
         }
-        case TCP_STATUS_FIN_WAIT_1: //  ~client
+        case TCP_STATUS_FIN_WAIT_1:
             break;
 
-        case TCP_STATUS_FIN_WAIT_2: // ~client
+        case TCP_STATUS_FIN_WAIT_2:
             break;
 
-        case TCP_STATUS_CLOSING: // ~client
+        case TCP_STATUS_CLOSING:
             break;
 
-        case TCP_STATUS_TIME_WAIT: // ~client
+        case TCP_STATUS_TIME_WAIT:
             break;
 
-        case TCP_STATUS_CLOSE_WAIT: // ~server
+        case TCP_STATUS_CLOSE_WAIT:
             tcp_handle_close_wait(stream, tcphdr);
             break;
 
-        case TCP_STATUS_LAST_ACK:  // ~server
+        case TCP_STATUS_LAST_ACK:
             tcp_handle_last_ack(stream, tcphdr);
             break;
     }
@@ -110,10 +110,10 @@ struct tcp_stream* tcp_stream_search(uint32_t sip, uint32_t dip, uint16_t sport,
     return NULL;
 }
 
-struct tcp_stream* tcp_stream_create(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport) { // proto
-    // tcp --> status
+struct tcp_stream* tcp_stream_create(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport) {
     struct tcp_stream* stream = rte_malloc("tcp_stream", sizeof(struct tcp_stream), 0);
-    if (stream == NULL) return NULL;
+    if (stream == NULL)
+        return NULL;
 
     stream->sip = sip;
     stream->dip = dip;
@@ -240,9 +240,9 @@ int tcp_enqueue_recvbuffer(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
 
 int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr, int tcplen) {
     if (tcphdr->tcp_flags & RTE_TCP_SYN_FLAG) {
-        //
+
     }
-    if (tcphdr->tcp_flags & RTE_TCP_PSH_FLAG) { //
+    if (tcphdr->tcp_flags & RTE_TCP_PSH_FLAG) {
         // recv buffer
 #if 0
         struct tcp_fragment* rfragment = rte_malloc("tcp_fragment", sizeof(struct tcp_fragment), 0);
@@ -349,15 +349,15 @@ int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
 
         rte_ring_mp_enqueue(stream->sndbuf, echofrag);
 #endif
-
     }
+
     if (tcphdr->tcp_flags & RTE_TCP_ACK_FLAG) {
 
     }
+
     if (tcphdr->tcp_flags & RTE_TCP_FIN_FLAG) {
 
         stream->status = TCP_STATUS_CLOSE_WAIT;
-
 #if 0
 
         struct tcp_fragment* rfragment = rte_malloc("tcp_fragment", sizeof(struct tcp_fragment), 0);
@@ -391,11 +391,7 @@ int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
 }
 
 int tcp_handle_close_wait(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr) {
-    if (tcphdr->tcp_flags & RTE_TCP_FIN_FLAG) { //
-
-        if (stream->status == TCP_STATUS_CLOSE_WAIT) {
-
-        }
+    if (tcphdr->tcp_flags & RTE_TCP_FIN_FLAG && stream->status == TCP_STATUS_CLOSE_WAIT) {
 
     }
 
@@ -445,7 +441,7 @@ int tcp_send_ackpkt(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr) {
     return 0;
 }
 
-int main_tcp_server(__attribute__((unused))  void *arg)  {
+int main_tcp_server(__attribute__((unused))  void* arg)  {
     int listenfd = net_socket(AF_INET, SOCK_STREAM, 0);
     if (listenfd == -1) {
         return -1;
@@ -474,8 +470,8 @@ int main_tcp_server(__attribute__((unused))  void *arg)  {
             } else if (n == 0) {
                 net_close(connfd);
                 break;
-            } else { // TODO nonblock
-
+            } else {
+                // TODO nonblock
             }
         }
     }
@@ -483,9 +479,9 @@ int main_tcp_server(__attribute__((unused))  void *arg)  {
     net_close(listenfd);
 }
 
-struct tcp_stream *get_accept_stream(uint16_t dport) {
-    struct tcp_stream *acpt;
-    struct tcp_table *table = get_tcp_table();
+struct tcp_stream* get_accept_stream(uint16_t dport) {
+    struct tcp_stream* acpt;
+    struct tcp_table* table = get_tcp_table();
 
     for (acpt = table->tcb_set; acpt != NULL; acpt = acpt->next) {
         if (dport == acpt->dport && acpt->fd == -1) {
@@ -496,35 +492,34 @@ struct tcp_stream *get_accept_stream(uint16_t dport) {
     return NULL;
 }
 
-int tcp_server_out(struct rte_mempool *mbuf_pool) {
-    struct tcp_table *table = get_tcp_table();
+int tcp_server_out(struct rte_mempool* mbuf_pool) {
+    struct tcp_table* table = get_tcp_table();
 
-    struct tcp_stream *stream;
+    struct tcp_stream* stream;
     for (stream = table->tcb_set; stream != NULL; stream = stream->next) {
         if (stream->sndbuf == NULL)
             continue; // listener
 
-        struct tcp_fragment *fragment = NULL;
+        struct tcp_fragment* fragment = NULL;
         int nb_snd = rte_ring_mc_dequeue(stream->sndbuf, (void**)&fragment);
         if (nb_snd < 0)
             continue;
 
-        uint8_t *dstmac = get_arp_mac(stream->sip);
+        uint8_t* dstmac = get_arp_mac(stream->sip);
         if (dstmac == NULL) {
-            struct rte_mbuf *arpbuf = make_arp_mbuf(
+            struct rte_mbuf* arpbuf = make_arp_mbuf(
                 mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, stream->dip, stream->sip
             );
 
-            struct inout_ring *ring = get_server_ring();
-            rte_ring_mp_enqueue_burst(ring->out, (void **)&arpbuf, 1, NULL);
-
+            struct inout_ring* ring = get_server_ring();
+            rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
             rte_ring_mp_enqueue(stream->sndbuf, fragment);
         } else {
-            struct rte_mbuf *tcpbuf = make_tcp_pkt(
+            struct rte_mbuf* tcpbuf = make_tcp_pkt(
                 mbuf_pool, stream->dip, stream->sip, stream->localmac, dstmac, fragment
             );
-            struct inout_ring *ring = get_server_ring();
-            rte_ring_mp_enqueue_burst(ring->out, (void **)&tcpbuf, 1, NULL);
+            struct inout_ring* ring = get_server_ring();
+            rte_ring_mp_enqueue_burst(ring->out, (void**)&tcpbuf, 1, NULL);
 
             if (fragment->data != NULL)
                 rte_free(fragment->data);
@@ -536,22 +531,22 @@ int tcp_server_out(struct rte_mempool *mbuf_pool) {
     return 0;
 }
 
-int encode_tcp_pkt(uint8_t *msg, uint32_t sip, uint32_t dip,
-    uint8_t *srcmac, uint8_t *dstmac, struct tcp_fragment *fragment)
+int encode_tcp_pkt(uint8_t* msg, uint32_t sip, uint32_t dip,
+    uint8_t* srcmac, uint8_t* dstmac, struct tcp_fragment* fragment)
 {
     const unsigned total_len =
-        fragment->data_len + sizeof(struct rte_ether_hdr) +
-        sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_tcp_hdr) +
-        fragment->optlen * sizeof(uint32_t);
+        sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) +
+        sizeof(struct rte_tcp_hdr) + fragment->optlen * sizeof(uint32_t) +
+        fragment->data_len;
 
     // 1 ethhdr
-    struct rte_ether_hdr *eth = (struct rte_ether_hdr *)msg;
+    struct rte_ether_hdr* eth = (struct rte_ether_hdr*)msg;
     rte_memcpy(eth->s_addr.addr_bytes, srcmac, RTE_ETHER_ADDR_LEN);
     rte_memcpy(eth->d_addr.addr_bytes, dstmac, RTE_ETHER_ADDR_LEN);
     eth->ether_type = htons(RTE_ETHER_TYPE_IPV4);
 
     // 2 iphdr
-    struct rte_ipv4_hdr *ip = (struct rte_ipv4_hdr *)(msg + sizeof(struct rte_ether_hdr));
+    struct rte_ipv4_hdr* ip = (struct rte_ipv4_hdr*)(msg + sizeof(struct rte_ether_hdr));
     ip->version_ihl = 0x45;
     ip->type_of_service = 0;
     ip->total_length = htons(total_len - sizeof(struct rte_ether_hdr));
@@ -566,46 +561,46 @@ int encode_tcp_pkt(uint8_t *msg, uint32_t sip, uint32_t dip,
     ip->hdr_checksum = rte_ipv4_cksum(ip);
 
     // 3 tcphdr
-    struct rte_tcp_hdr *tcp = (struct rte_tcp_hdr *)(msg + sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr));
-    tcp->src_port = fragment->sport;
-    tcp->dst_port = fragment->dport;
-    tcp->sent_seq = htonl(fragment->seqnum);
-    tcp->recv_ack = htonl(fragment->acknum);
+    struct rte_tcp_hdr* tcphdr = (struct rte_tcp_hdr*)(
+        msg + sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr)
+    );
+    tcphdr->src_port = fragment->sport;
+    tcphdr->dst_port = fragment->dport;
+    tcphdr->sent_seq = htonl(fragment->seqnum);
+    tcphdr->recv_ack = htonl(fragment->acknum);
 
-    tcp->data_off = fragment->hdrlen_off;
-    tcp->rx_win = fragment->windows;
-    tcp->tcp_urp = fragment->tcp_urp;
-    tcp->tcp_flags = fragment->tcp_flags;
+    tcphdr->data_off = fragment->hdrlen_off;
+    tcphdr->rx_win = fragment->windows;
+    tcphdr->tcp_urp = fragment->tcp_urp;
+    tcphdr->tcp_flags = fragment->tcp_flags;
 
     if (fragment->data != NULL) {
-        uint8_t *payload = (uint8_t*)(tcp+1) + fragment->optlen * sizeof(uint32_t);
+        uint8_t* payload = (uint8_t*)(tcphdr+1) + fragment->optlen * sizeof(uint32_t);
         rte_memcpy(payload, fragment->data, fragment->data_len);
     }
 
-    tcp->cksum = 0;
-    tcp->cksum = rte_ipv4_udptcp_cksum(ip, tcp);
+    tcphdr->cksum = 0;
+    tcphdr->cksum = rte_ipv4_udptcp_cksum(ip, tcphdr);
 
     return 0;
 }
 
-struct rte_mbuf * make_tcp_pkt(struct rte_mempool *mbuf_pool, uint32_t sip, uint32_t dip,
-    uint8_t *srcmac, uint8_t *dstmac, struct tcp_fragment *fragment) {
+struct rte_mbuf* make_tcp_pkt(struct rte_mempool* mbuf_pool, uint32_t sip, uint32_t dip,
+    uint8_t* srcmac, uint8_t* dstmac, struct tcp_fragment* fragment)
+{
+    const unsigned total_len =
+        sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) +
+        sizeof(struct rte_tcp_hdr) + fragment->optlen* sizeof(uint32_t) +
+        fragment->data_len;
 
-    // mempool --> mbuf
-
-    const unsigned total_len = fragment->data_len + sizeof(struct rte_ether_hdr) +
-        sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_tcp_hdr) +
-        fragment->optlen * sizeof(uint32_t);
-
-    struct rte_mbuf *mbuf = rte_pktmbuf_alloc(mbuf_pool);
+    struct rte_mbuf* mbuf = rte_pktmbuf_alloc(mbuf_pool);
     if (!mbuf) {
         rte_exit(EXIT_FAILURE, "ng_tcp_pkt rte_pktmbuf_alloc\n");
     }
     mbuf->pkt_len = total_len;
     mbuf->data_len = total_len;
 
-    uint8_t *pktdata = rte_pktmbuf_mtod(mbuf, uint8_t*);
-
+    uint8_t* pktdata = rte_pktmbuf_mtod(mbuf, uint8_t*);
     encode_tcp_pkt(pktdata, sip, dip, srcmac, dstmac, fragment);
 
     return mbuf;

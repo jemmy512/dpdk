@@ -1,3 +1,5 @@
+#include "server.h"
+
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_mbuf.h>
@@ -15,7 +17,7 @@
 #include "tcp.h"
 #include "udp.h"
 #include "arp.h"
-#include "file.h"
+#include "icmp.h"
 #include "context.h"
 
 static const struct rte_eth_conf port_conf_default = {
@@ -38,12 +40,7 @@ int main(int argc, char* argv[]) {
 
     init_server_context();
 
-    init_arp_timer(mbuf_pool);
-
-    // uint8_t mac_arr[RTE_ETHER_ADDR_LEN] = { 0x88, 0x66, 0x5a, 0x53, 0x3a, 0xd0 };
-    // uint8_t* mac_addr = rte_malloc("192.168.70.174", RTE_ETHER_ADDR_LEN, 0);
-    // rte_memcpy(mac_addr, &mac_arr, RTE_ETHER_ADDR_LEN);
-    // arp_table_add(inet_addr("192.168.70.174"), mac_addr, 0);
+    // init_arp_timer(mbuf_pool);
 
     struct inout_ring* ring = get_server_ring();
 
@@ -55,7 +52,7 @@ int main(int argc, char* argv[]) {
     rte_eal_remote_launch(main_tcp_server, mbuf_pool, lcore_2);
 
     while (1) {
-        arp_timer_tick();
+        // arp_timer_tick();
 
         struct rte_mbuf* rx_mbuf[BURST_SIZE];
         unsigned nb_rx = rte_eth_rx_burst(get_dpdk_port(), 0, rx_mbuf, BURST_SIZE);
@@ -123,13 +120,13 @@ int pkt_handler(void* arg) {
             );
 
             if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
-                // arp_pkt_handler(mbuf_pool, mbufs[i], ehdr);
+                arp_pkt_handler(mbuf_pool, mbufs[i], ehdr);
             } else if (iphdr->next_proto_id == IPPROTO_TCP) {
                 tcp_pkt_handler(mbufs[i]);
             } else if (iphdr->next_proto_id == IPPROTO_UDP) {
                 udp_pkt_handler(mbufs[i]);
             } else if (iphdr->next_proto_id == IPPROTO_ICMP) {
-                // icmp_pkt_handler(mbuf_pool, mbufs[i], ehdr);
+                icmp_pkt_handler(mbuf_pool, mbufs[i], ehdr);
             } else {
                 rte_pktmbuf_free(mbufs[i]);
             }

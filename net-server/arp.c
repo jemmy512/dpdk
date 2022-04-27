@@ -8,17 +8,11 @@
 #include "server.h"
 #include "context.h"
 
+#define TIMER_RESOLUTION_CYCLES 60000000000ULL // 10ms * 1000 = 10s * 6
+
 static struct arp_table* arp_table_ins = NULL;
 
 uint8_t gDefaultArpMac[RTE_ETHER_ADDR_LEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-#define TIMER_RESOLUTION_CYCLES 60000000000ULL // 10ms * 1000 = 10s * 6
-
-#define MAKE_IPV4_ADDR(a, b, c, d) (a + (b<<8) + (c<<16) + (d<<24))
-
-static uint32_t gLocalIp = MAKE_IPV4_ADDR(192, 168, 71, 67);
-
-static uint8_t gSrcMac[RTE_ETHER_ADDR_LEN];
 
 static struct rte_timer arp_timer;
 
@@ -82,7 +76,7 @@ int arp_table_rm(uint32_t ip) {
 int encode_arp_pkt(uint8_t* msg, uint16_t opcode, uint8_t* dst_mac, uint32_t sip, uint32_t dip) {
     // 1 ethhdr
     struct rte_ether_hdr* eth = (struct rte_ether_hdr*)msg;
-    rte_memcpy(eth->s_addr.addr_bytes, gSrcMac, RTE_ETHER_ADDR_LEN);
+    rte_memcpy(eth->s_addr.addr_bytes, get_local_mac(), RTE_ETHER_ADDR_LEN);
     rte_memcpy(eth->d_addr.addr_bytes, dst_mac, RTE_ETHER_ADDR_LEN);
     eth->ether_type = htons(RTE_ETHER_TYPE_ARP);
 
@@ -94,8 +88,8 @@ int encode_arp_pkt(uint8_t* msg, uint16_t opcode, uint8_t* dst_mac, uint32_t sip
     arp->arp_plen = sizeof(uint32_t);
     arp->arp_opcode = htons(opcode);
 
-    rte_memcpy(arp->arp_data.arp_sha.addr_bytes, gSrcMac, RTE_ETHER_ADDR_LEN);
-    rte_memcpy( arp->arp_data.arp_tha.addr_bytes, dst_mac, RTE_ETHER_ADDR_LEN);
+    rte_memcpy(arp->arp_data.arp_sha.addr_bytes, get_local_mac(), RTE_ETHER_ADDR_LEN);
+    rte_memcpy(arp->arp_data.arp_tha.addr_bytes, dst_mac, RTE_ETHER_ADDR_LEN);
 
     arp->arp_data.arp_sip = sip;
     arp->arp_data.arp_tip = dip;
@@ -151,7 +145,7 @@ void debug_arp_table(void) {
         mbuf, struct rte_arp_hdr* , sizeof(struct rte_ether_hdr)
     );
 
-    if (arphdr->arp_data.arp_tip == gLocalIp) {
+    if (arphdr->arp_data.arp_tip == get_local_ip()) {
         if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REQUEST)) {
             printf("arp --> recv req\n");
 
@@ -215,9 +209,9 @@ void arp_request_timer_cb(__attribute__((unused)) struct rte_timer* timer, void*
         uint8_t* dst_mac = get_arp_mac(dstip);
 
         if (dst_mac == NULL) {
-            arpbuf = make_arp_mbuf(mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, gLocalIp, dstip);
+            arpbuf = make_arp_mbuf(mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, get_local_ip(), dstip);
         } else {
-            arpbuf = make_arp_mbuf(mbuf_pool, RTE_ARP_OP_REQUEST, dst_mac, gLocalIp, dstip);
+            arpbuf = make_arp_mbuf(mbuf_pool, RTE_ARP_OP_REQUEST, dst_mac, get_local_ip(), dstip);
         }
 
         struct inout_ring *ring = get_server_ring();

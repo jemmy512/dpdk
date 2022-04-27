@@ -2,7 +2,7 @@
 
 #include <sys/socket.h>
 
-#include "server.h"
+#include <rte_ether.h>
 
 extern struct localhost* host_table;
 
