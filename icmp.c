@@ -69,13 +69,13 @@ int encode_icmp_pkt(uint8_t* msg, uint8_t* dst_mac,
     return 0;
 }
 
-struct rte_mbuf* make_icmp_mbuf(struct rte_mempool* mbuf_pool, uint8_t* dst_mac,
+struct rte_mbuf* make_icmp_mbuf(uint8_t* dst_mac,
     uint32_t src_ip, uint32_t dst_ip, uint16_t id, uint16_t seqnb, uint8_t* data, unsigned data_len)
 {
     const unsigned total_length = sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) +
         sizeof(struct rte_icmp_hdr) + data_len;
 
-    struct rte_mbuf* mbuf = rte_pktmbuf_alloc(mbuf_pool);
+    struct rte_mbuf* mbuf = rte_pktmbuf_alloc(get_server_mempool());
     if (!mbuf) {
         rte_exit(EXIT_FAILURE, "rte_pktmbuf_alloc\n");
     }
@@ -89,7 +89,7 @@ struct rte_mbuf* make_icmp_mbuf(struct rte_mempool* mbuf_pool, uint8_t* dst_mac,
     return mbuf;
 }
 
-void icmp_pkt_handler(struct rte_mempool* mbuf_pool,  struct rte_mbuf* mbuf, struct rte_ether_hdr* ehdr) {
+void icmp_pkt_handler(struct rte_mbuf* mbuf, struct rte_ether_hdr* ehdr) {
     struct rte_ipv4_hdr* iphdr = rte_pktmbuf_mtod_offset(
         mbuf, struct rte_ipv4_hdr* , sizeof(struct rte_ether_hdr)
     );
@@ -112,7 +112,8 @@ void icmp_pkt_handler(struct rte_mempool* mbuf_pool,  struct rte_mbuf* mbuf, str
         }
         printf("\n");
 
-        struct rte_mbuf* mbuf = make_icmp_mbuf(mbuf_pool, ehdr->s_addr.addr_bytes,
+        struct rte_mbuf* mbuf = make_icmp_mbuf(
+            ehdr->s_addr.addr_bytes,
             iphdr->dst_addr, iphdr->src_addr, icmphdr->icmp_ident, icmphdr->icmp_seq_nb,
             (uint8_t*)(icmphdr+1),
             data_len

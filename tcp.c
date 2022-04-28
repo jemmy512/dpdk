@@ -492,7 +492,7 @@ struct tcp_stream* get_accept_stream(uint16_t dport) {
     return NULL;
 }
 
-int tcp_server_out(struct rte_mempool* mbuf_pool) {
+int tcp_server_out(void) {
     struct tcp_table* table = get_tcp_table();
 
     struct tcp_stream* stream;
@@ -508,7 +508,7 @@ int tcp_server_out(struct rte_mempool* mbuf_pool) {
         uint8_t* dstmac = get_arp_mac(stream->sip);
         if (dstmac == NULL) {
             struct rte_mbuf* arpbuf = make_arp_mbuf(
-                mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, stream->dip, stream->sip
+                RTE_ARP_OP_REQUEST, gDefaultArpMac, stream->dip, stream->sip
             );
 
             struct inout_ring* ring = get_server_ring();
@@ -516,7 +516,7 @@ int tcp_server_out(struct rte_mempool* mbuf_pool) {
             rte_ring_mp_enqueue(stream->sndbuf, fragment);
         } else {
             struct rte_mbuf* tcpbuf = make_tcp_pkt(
-                mbuf_pool, stream->dip, stream->sip, stream->localmac, dstmac, fragment
+                stream->dip, stream->sip, stream->localmac, dstmac, fragment
             );
             struct inout_ring* ring = get_server_ring();
             rte_ring_mp_enqueue_burst(ring->out, (void**)&tcpbuf, 1, NULL);
@@ -585,7 +585,7 @@ int encode_tcp_pkt(uint8_t* msg, uint32_t sip, uint32_t dip,
     return 0;
 }
 
-struct rte_mbuf* make_tcp_pkt(struct rte_mempool* mbuf_pool, uint32_t sip, uint32_t dip,
+struct rte_mbuf* make_tcp_pkt(uint32_t sip, uint32_t dip,
     uint8_t* srcmac, uint8_t* dstmac, struct tcp_fragment* fragment)
 {
     const unsigned total_len =
@@ -593,7 +593,7 @@ struct rte_mbuf* make_tcp_pkt(struct rte_mempool* mbuf_pool, uint32_t sip, uint3
         sizeof(struct rte_tcp_hdr) + fragment->optlen* sizeof(uint32_t) +
         fragment->data_len;
 
-    struct rte_mbuf* mbuf = rte_pktmbuf_alloc(mbuf_pool);
+    struct rte_mbuf* mbuf = rte_pktmbuf_alloc(get_server_mempool());
     if (!mbuf) {
         rte_exit(EXIT_FAILURE, "ng_tcp_pkt rte_pktmbuf_alloc\n");
     }

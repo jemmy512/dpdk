@@ -50,13 +50,13 @@ int encode_udp_pkt(uint8_t* msg, uint32_t sip, uint32_t dip,
 }
 
 struct rte_mbuf* make_udp_mbuf(
-    struct rte_mempool* mbuf_pool, uint32_t sip, uint32_t dip,
+    uint32_t sip, uint32_t dip,
     uint16_t sport, uint16_t dport, uint8_t* src_mac, uint8_t* dst_mac,
     uint8_t* data, uint16_t length)
 {
     const unsigned total_len = length + 42;
 
-    struct rte_mbuf* mbuf = rte_pktmbuf_alloc(mbuf_pool);
+    struct rte_mbuf* mbuf = rte_pktmbuf_alloc(get_server_mempool());
     if (!mbuf) {
         rte_exit(EXIT_FAILURE, "rte_pktmbuf_alloc\n");
     }
@@ -154,7 +154,7 @@ int main_udp_server(__attribute__((unused)) void* arg) {
     net_close(connfd);
 }
 
-int udp_server_out(struct rte_mempool* mbuf_pool) {
+int udp_server_out() {
     for (struct localhost* host = host_table; host != NULL; host = host->next) {
         struct offload* ol;
         int nb_snd = rte_ring_mc_dequeue(host->sndbuf, (void**)&ol);
@@ -167,7 +167,7 @@ int udp_server_out(struct rte_mempool* mbuf_pool) {
         uint8_t* dst_mac = get_arp_mac(ol->dip);
         if (dst_mac == NULL) {
             struct rte_mbuf* arpbuf = make_arp_mbuf(
-                mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, ol->sip, ol->dip
+                RTE_ARP_OP_REQUEST, gDefaultArpMac, ol->sip, ol->dip
             );
 
             struct inout_ring* ring = get_server_ring();
@@ -176,7 +176,7 @@ int udp_server_out(struct rte_mempool* mbuf_pool) {
             rte_ring_mp_enqueue(host->sndbuf, ol);
         } else {
             struct rte_mbuf* udpbuf = make_udp_mbuf(
-                mbuf_pool, ol->sip, ol->dip, ol->sport, ol->dport,
+                ol->sip, ol->dip, ol->sport, ol->dport,
                 host->localmac, dst_mac, ol->data, ol->length
             );
 

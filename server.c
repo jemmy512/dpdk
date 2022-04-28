@@ -29,14 +29,7 @@ int main(int argc, char* argv[]) {
         rte_exit(EXIT_FAILURE, "Error with EAL init\n");
     }
 
-    struct rte_mempool* mbuf_pool = rte_pktmbuf_pool_create(
-        "mbuf pool", NUM_MBUFS, 0, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id()
-    );
-    if (mbuf_pool == NULL) {
-        rte_exit(EXIT_FAILURE, "Could not create mbuf pool\n");
-    }
-
-    init_port(mbuf_pool);
+    init_port();
 
     init_server_context();
 
@@ -47,6 +40,7 @@ int main(int argc, char* argv[]) {
     uint32_t lcore_1 = rte_get_next_lcore(-1, 1, 0);
 	uint32_t lcore_2 = rte_get_next_lcore(lcore_1, 1, 0);
 
+    struct ret_mempool* mbuf_pool = get_server_mempool();
     rte_eal_remote_launch(pkt_handler, mbuf_pool, lcore_1);
     rte_eal_remote_launch(main_udp_server, mbuf_pool, lcore_2);
     rte_eal_remote_launch(main_tcp_server, mbuf_pool, lcore_2);
@@ -73,9 +67,9 @@ int main(int argc, char* argv[]) {
     }
 }
 
-void init_port(struct rte_mempool* mbuf_pool) {
-    uint16_t dev_count= rte_eth_dev_count_avail();
-    if (dev_count == 0) {
+void init_port(void) {
+    uint16_t nb_port = rte_eth_dev_count_avail();
+    if (nb_port == 0) {
         rte_exit(EXIT_FAILURE, "No Supported eth found\n");
     }
 
@@ -88,7 +82,7 @@ void init_port(struct rte_mempool* mbuf_pool) {
     rte_eth_dev_configure(get_dpdk_port(), num_rx_queues, num_tx_queues, &port_conf);
 
     const int socket_id = rte_eth_dev_socket_id(get_dpdk_port());
-    if (rte_eth_rx_queue_setup(get_dpdk_port(), 0, 1024, socket_id, NULL, mbuf_pool) < 0) {
+    if (rte_eth_rx_queue_setup(get_dpdk_port(), 0, 1024, socket_id, NULL, get_server_mempool()) < 0) {
         rte_exit(EXIT_FAILURE, "Could not setup RX queue\n");
     }
 
@@ -106,7 +100,6 @@ void init_port(struct rte_mempool* mbuf_pool) {
 int pkt_handler(void* arg) {
     printf("pkt_handler started\n");
 
-    struct rte_mempool* mbuf_pool = (struct rte_mempool*)arg;
     struct inout_ring* ring = get_server_ring();
 
     while (1) {
@@ -120,21 +113,21 @@ int pkt_handler(void* arg) {
             );
 
             if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
-                arp_pkt_handler(mbuf_pool, mbufs[i], ehdr);
+                arp_pkt_handler(mbufs[i], ehdr);
             } else if (iphdr->next_proto_id == IPPROTO_TCP) {
                 tcp_pkt_handler(mbufs[i]);
             } else if (iphdr->next_proto_id == IPPROTO_UDP) {
                 udp_pkt_handler(mbufs[i]);
             } else if (iphdr->next_proto_id == IPPROTO_ICMP) {
-                icmp_pkt_handler(mbuf_pool, mbufs[i], ehdr);
+                icmp_pkt_handler(mbufs[i], ehdr);
             } else {
                 rte_pktmbuf_free(mbufs[i]);
             }
         }
 
-        udp_server_out(mbuf_pool);
+        udp_server_out();
 
-        tcp_server_out(mbuf_pool);
+        tcp_server_out();
     }
 
     return 0;

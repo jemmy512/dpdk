@@ -97,12 +97,10 @@ int encode_arp_pkt(uint8_t* msg, uint16_t opcode, uint8_t* dst_mac, uint32_t sip
     return 0;
 }
 
- struct rte_mbuf* make_arp_mbuf(
-    struct rte_mempool* mbuf_pool, uint16_t opcode, uint8_t* dst_mac, uint32_t sip, uint32_t dip)
-{
+struct rte_mbuf* make_arp_mbuf(uint16_t opcode, uint8_t* dst_mac, uint32_t sip, uint32_t dip) {
     const unsigned total_length = sizeof(struct rte_ether_hdr) + sizeof(struct rte_arp_hdr);
 
-    struct rte_mbuf* mbuf = rte_pktmbuf_alloc(mbuf_pool);
+    struct rte_mbuf* mbuf = rte_pktmbuf_alloc(get_server_mempool());
     if (!mbuf) {
         rte_exit(EXIT_FAILURE, "rte_pktmbuf_alloc\n");
     }
@@ -136,7 +134,7 @@ void debug_arp_table(void) {
     }
 }
 
- void arp_pkt_handler(struct rte_mempool* mbuf_pool,  struct rte_mbuf* mbuf, struct rte_ether_hdr* ehdr) {
+ void arp_pkt_handler(struct rte_mbuf* mbuf, struct rte_ether_hdr* ehdr) {
     if (ehdr->ether_type != rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
         return;
     }
@@ -150,7 +148,7 @@ void debug_arp_table(void) {
             printf("arp --> recv req\n");
 
             struct rte_mbuf* arpbuf = make_arp_mbuf(
-                mbuf_pool, RTE_ARP_OP_REPLY,
+                RTE_ARP_OP_REPLY,
                 arphdr->arp_data.arp_sha.addr_bytes,
                 arphdr->arp_data.arp_tip,
                 arphdr->arp_data.arp_sip
@@ -183,19 +181,17 @@ void arp_timer_tick(void) {
     }
 }
 
-void init_arp_timer(struct rte_mempool* mbuf_pool) {
+void init_arp_timer(void) {
     rte_timer_subsystem_init();
 
     rte_timer_init(&arp_timer);
 
     uint64_t hz = rte_get_timer_hz();
     unsigned lcore_id = rte_lcore_id();
-    rte_timer_reset(&arp_timer, hz, PERIODICAL, lcore_id, arp_request_timer_cb, mbuf_pool);
+    rte_timer_reset(&arp_timer, hz, PERIODICAL, lcore_id, arp_request_timer_cb, get_server_mempool());
 }
 
 void arp_request_timer_cb(__attribute__((unused)) struct rte_timer* timer, void* arg) {
-    struct rte_mempool* mbuf_pool = (struct rte_mempool*)arg;
-
     uint32_t arp_req_ip = MAKE_IPV4_ADDR(192, 168, 70, 174);
 
     for (int i = 100; i <= 255; ++i) {
@@ -209,9 +205,9 @@ void arp_request_timer_cb(__attribute__((unused)) struct rte_timer* timer, void*
         uint8_t* dst_mac = get_arp_mac(dstip);
 
         if (dst_mac == NULL) {
-            arpbuf = make_arp_mbuf(mbuf_pool, RTE_ARP_OP_REQUEST, gDefaultArpMac, get_local_ip(), dstip);
+            arpbuf = make_arp_mbuf(RTE_ARP_OP_REQUEST, gDefaultArpMac, get_local_ip(), dstip);
         } else {
-            arpbuf = make_arp_mbuf(mbuf_pool, RTE_ARP_OP_REQUEST, dst_mac, get_local_ip(), dstip);
+            arpbuf = make_arp_mbuf(RTE_ARP_OP_REQUEST, dst_mac, get_local_ip(), dstip);
         }
 
         struct inout_ring *ring = get_server_ring();
