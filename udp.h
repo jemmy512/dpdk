@@ -18,6 +18,6 @@ struct rte_mbuf* make_udp_mbuf(
 
 int udp_pkt_handler(struct rte_mbuf* udpmbuf);
 
-int main_udp_server(__attribute__((unused)) void* arg);
+int main_udp_server(UN_USED void* arg);
 
-int udp_server_out();
+int udp_server_out(void);

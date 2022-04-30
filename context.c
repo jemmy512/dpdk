@@ -6,10 +6,12 @@
 
 #include <netinet/ether.h>
 
+#include <assert.h>
+
 static int dpdk_port = 0;
 
 static uint8_t local_mac[RTE_ETHER_ADDR_LEN];
-static uint32_t local_ip = MAKE_IPV4_ADDR(192, 168, 71, 67);
+static uint32_t local_ip = MAKE_IPV4_ADDR(192, 168, 4, 94);
 
 static struct rte_mempool* mbuf_pool = NULL;
 static struct inout_ring* ring_ins = NULL;
@@ -18,7 +20,7 @@ static struct inout_ring* ring_ins = NULL;
 
 void init_server_context(void) {
     rte_eth_macaddr_get(get_dpdk_port(), (struct rte_ether_addr*)local_mac);
-    printf("local mac: %s\n", ether_ntoa((struct ether_addr*)local_mac));`
+    printf("local mac: %s\n", ether_ntoa((struct ether_addr*)local_mac));
 
     mbuf_pool = rte_pktmbuf_pool_create(
         "mbuf pool", NUM_MBUFS, 0, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id()
@@ -28,19 +30,20 @@ void init_server_context(void) {
     }
 }
 
-int get_dpdk_port(void) {
+inline int get_dpdk_port(void) {
     return dpdk_port;
 }
 
-uint8_t* get_local_mac(void) {
+inline uint8_t* get_local_mac(void) {
     return local_mac;
 }
 
-uint32_t get_local_ip(void) {
+inline uint32_t get_local_ip(void) {
     return local_ip;
 }
 
-struct rte_mempool* get_server_mempool(void) {
+inline struct rte_mempool* get_server_mempool(void) {
+    assert(mbuf_pool);
     return mbuf_pool;
 }
 

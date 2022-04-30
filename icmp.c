@@ -89,7 +89,8 @@ struct rte_mbuf* make_icmp_mbuf(uint8_t* dst_mac,
     return mbuf;
 }
 
-void icmp_pkt_handler(struct rte_mbuf* mbuf, struct rte_ether_hdr* ehdr) {
+void icmp_pkt_handler(struct rte_mbuf* mbuf) {
+    struct rte_ether_hdr* ehdr = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr*);
     struct rte_ipv4_hdr* iphdr = rte_pktmbuf_mtod_offset(
         mbuf, struct rte_ipv4_hdr* , sizeof(struct rte_ether_hdr)
     );
@@ -106,6 +107,7 @@ void icmp_pkt_handler(struct rte_mbuf* mbuf, struct rte_ether_hdr* ehdr) {
 
         uint16_t data_len = ntohs(iphdr->total_length) - sizeof(struct rte_ipv4_hdr) - sizeof(struct rte_icmp_hdr);
 
+        // TODO fix print
         printf("icmp data len: %d, data: ", data_len);
         for (uint16_t i = 0; i < data_len; ++i) {
             printf("%x-", *((uint16_t*)(icmphdr+1) + i));

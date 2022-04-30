@@ -1,10 +1,13 @@
 #pragma once
 
 #include <rte_ring.h>
+#include <rte_mempool.h>
 
 #define RING_SIZE 1024
 
 #define NUM_MBUFS (4096-1)
+
+#define UN_USED __attribute__((unused))
 
 #define MAKE_IPV4_ADDR(a, b, c, d) (a + (b<<8) + (c<<16) + (d<<24))
 

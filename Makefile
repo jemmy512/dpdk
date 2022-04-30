@@ -21,7 +21,7 @@ PKGCONF=pkg-config --define-prefix
 
 PC_FILE := $(shell $(PKGCONF) --path libdpdk)
 # CFLAGS += -O3 $(shell $(PKGCONF) --cflags libdpdk)
-CFLAGS += -g $(shell $(PKGCONF) --cflags libdpdk)
+CFLAGS += -O0 -g $(shell $(PKGCONF) --cflags libdpdk)
 CFLAGS += -DALLOW_EXPERIMENTAL_API
 LDFLAGS_SHARED = $(shell $(PKGCONF) --libs libdpdk)
 LDFLAGS_STATIC = -Wl,-Bstatic $(shell $(PKGCONF) --static --libs libdpdk)
@@ -56,7 +56,7 @@ $(error This application can only operate in a linux environment, \
 please change the definition of the RTE_TARGET environment variable)
 endif
 
-# CFLAGS += -O3
+CFLAGS += -O0
 CFLAGS += -g
 CFLAGS += -DALLOW_EXPERIMENTAL_API
 CFLAGS += $(WERROR_FLAGS)

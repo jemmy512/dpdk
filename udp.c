@@ -76,16 +76,14 @@ int udp_pkt_handler(struct rte_mbuf* udpmbuf) {
     );
     struct rte_udp_hdr* udphdr = (struct rte_udp_hdr*)(iphdr + 1);
 
-    struct in_addr addr;
-    addr.s_addr = iphdr->src_addr;
-    printf("udp_pkt_handler ---> src [%s:%d]", inet_ntoa(addr), ntohs(udphdr->src_port));
-
     struct localhost* host = get_hostinfo_by_ip_port(iphdr->dst_addr, udphdr->dst_port, iphdr->next_proto_id);
     if (host == NULL) {
         rte_pktmbuf_free(udpmbuf);
-        printf("not found host\n");
+        // printf("not found host\n");
         return -3;
     }
+
+    debug_ip_port("udp_pkt_handler", iphdr->src_addr, iphdr->dst_addr, udphdr->src_port, udphdr->dst_port);
 
     struct offload* ol = rte_malloc("offload", sizeof(struct offload), 0);
     if (ol == NULL) {
@@ -108,8 +106,6 @@ int udp_pkt_handler(struct rte_mbuf* udpmbuf) {
     }
     rte_memcpy(ol->data, (unsigned char*)(udphdr+1), ol->length);
 
-    printf(", data: %s", ol->data);
-
     rte_ring_mp_enqueue(host->rcvbuf, ol);
 
     pthread_mutex_lock(&host->mutex);
@@ -121,8 +117,8 @@ int udp_pkt_handler(struct rte_mbuf* udpmbuf) {
     return 0;
 }
 
-int main_udp_server(__attribute__((unused)) void* arg) {
-    printf("main_udp_server started\n");
+int main_udp_server(UN_USED void* arg) {
+    printf("main_udp_server starting...\n");
 
     int connfd = net_socket(AF_INET, SOCK_DGRAM, 0);
     if (connfd == -1) {
@@ -146,7 +142,7 @@ int main_udp_server(__attribute__((unused)) void* arg) {
         if (net_recvfrom(connfd, buffer, UDP_APP_RECV_BUFFER_SIZE, 0, (struct sockaddr*)&clientaddr, &addrlen) <= 0) {
             continue;
         } else {
-            printf("main_udp_server ---> src [%s:%d], data: %s", inet_ntoa(clientaddr.sin_addr), ntohs(clientaddr.sin_port), buffer);
+            printf("main_udp_server ---> data: %s\n", buffer);
             net_sendto(connfd, buffer, strlen(buffer), 0, (struct sockaddr*)&clientaddr, sizeof(clientaddr));
         }
     }
@@ -154,7 +150,7 @@ int main_udp_server(__attribute__((unused)) void* arg) {
     net_close(connfd);
 }
 
-int udp_server_out() {
+int udp_server_out(void) {
     for (struct localhost* host = host_table; host != NULL; host = host->next) {
         struct offload* ol;
         int nb_snd = rte_ring_mc_dequeue(host->sndbuf, (void**)&ol);

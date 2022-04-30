@@ -96,7 +96,6 @@ struct tcp_fragment {
     uint32_t data_len;
 };
 
-struct tcp_table* get_tcp_table(void);
 
 int tcp_pkt_handler(struct rte_mbuf* tcpmbuf);
 
@@ -113,7 +112,7 @@ int tcp_handle_last_ack(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr);
 
 int tcp_send_ackpkt(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr);
 
-int main_tcp_server(__attribute__((unused)) void* arg);
+int main_tcp_server(UN_USED void* arg);
 int tcp_server_out(void);
 
 struct tcp_stream* get_accept_stream(uint16_t dport);
@@ -123,3 +122,8 @@ int encode_tcp_pkt(uint8_t *msg, uint32_t sip, uint32_t dip,
 
 struct rte_mbuf* make_tcp_pkt(uint32_t sip, uint32_t dip,
 	uint8_t *srcmac, uint8_t *dstmac, struct tcp_fragment *fragment);
+
+
+struct tcp_table* get_tcp_table(void);
+void tcp_table_rm(struct tcp_stream* stream);
+void tcp_table_add(struct tcp_stream* stream);

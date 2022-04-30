@@ -8,7 +8,9 @@
 #include "server.h"
 #include "context.h"
 
-#define TIMER_RESOLUTION_CYCLES 60000000000ULL // 10ms * 1000 = 10s * 6
+#define TIMER_RESOLUTION_CYCLES 120000000000ULL // 10ms * 1000 = 10s * 6
+
+#define ARP_REQ_IP MAKE_IPV4_ADDR(192, 168, 4, 234)
 
 static struct arp_table* arp_table_ins = NULL;
 
@@ -129,16 +131,13 @@ void debug_arp_table(void) {
         struct in_addr addr;
         addr.s_addr = iter->ip;
 
-        print_ethaddr("arp table --> mac: ", (struct rte_ether_addr*)iter->hwaddr);
-        printf(" ip: %s \n", inet_ntoa(addr));
+        printf("arp table --> ip: %s, ", inet_ntoa(addr));
+        print_ethaddr("mac: ", (struct rte_ether_addr*)iter->hwaddr);
+        printf("\n");
     }
 }
 
- void arp_pkt_handler(struct rte_mbuf* mbuf, struct rte_ether_hdr* ehdr) {
-    if (ehdr->ether_type != rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
-        return;
-    }
-
+ void arp_pkt_handler(struct rte_mbuf* mbuf) {
     struct rte_arp_hdr* arphdr = rte_pktmbuf_mtod_offset(
         mbuf, struct rte_arp_hdr* , sizeof(struct rte_ether_hdr)
     );
@@ -154,9 +153,8 @@ void debug_arp_table(void) {
                 arphdr->arp_data.arp_sip
             );
 
-            rte_eth_tx_burst(get_dpdk_port(), 0, &arpbuf, 1);
-            rte_pktmbuf_free(arpbuf);
-
+            struct inout_ring* ring = get_server_ring();
+            rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
         } else if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) {
             printf("arp --> recv reply\n");
 
@@ -166,7 +164,7 @@ void debug_arp_table(void) {
                 arp_table_add(arphdr->arp_data.arp_sip, arphdr->arp_data.arp_sha.addr_bytes, 0);
             }
 
-            debug_arp_table();
+            // debug_arp_table();
         }
     }
 }
@@ -188,13 +186,13 @@ void init_arp_timer(void) {
 
     uint64_t hz = rte_get_timer_hz();
     unsigned lcore_id = rte_lcore_id();
-    rte_timer_reset(&arp_timer, hz, PERIODICAL, lcore_id, arp_request_timer_cb, get_server_mempool());
+    rte_timer_reset(&arp_timer, hz, PERIODICAL, lcore_id, arp_request_timer_cb, NULL);
 }
 
-void arp_request_timer_cb(__attribute__((unused)) struct rte_timer* timer, void* arg) {
-    uint32_t arp_req_ip = MAKE_IPV4_ADDR(192, 168, 70, 174);
+void arp_request_timer_cb(UN_USED struct rte_timer* timer, UN_USED void* arg) {
+    uint32_t arp_req_ip = ARP_REQ_IP;
 
-    for (int i = 100; i <= 255; ++i) {
+    for (int i = 233; i <= 235; ++i) {
         uint32_t dstip = (arp_req_ip & 0x00FFFFFF) | (0xFF000000 & (i << 24));
 
         struct in_addr addr;
