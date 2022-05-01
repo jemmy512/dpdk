@@ -31,14 +31,17 @@ void init_server_context(void) {
 }
 
 inline int get_dpdk_port(void) {
+    assert(dpdk_port == 0);
     return dpdk_port;
 }
 
 inline uint8_t* get_local_mac(void) {
+    assert(local_mac != NULL);
     return local_mac;
 }
 
 inline uint32_t get_local_ip(void) {
+    assert(local_ip);
     return local_ip;
 }
 

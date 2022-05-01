@@ -22,7 +22,7 @@ ssize_t net_recvfrom(
 
 ssize_t net_sendto(
     int sockfd, const void* buf, size_t len, UN_USED int flags,
-    const struct sockaddr* dest_addr, UN_USED socklen_t addrlen);
+    const struct sockaddr* dst_addr, UN_USED socklen_t addrlen);
 
 struct offload {
     uint32_t sip;
@@ -34,7 +34,7 @@ struct offload {
     int protocol;
 
     unsigned char* data;
-    uint16_t length;
+    uint16_t data_len;
 };
 
 struct localhost {

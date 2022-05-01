@@ -14,12 +14,12 @@
 struct localhost* host_table = NULL;
 
 int net_socket(UN_USED int domain, int type, UN_USED  int protocol) {
-    int fd = get_fd_from_bitmap();
+    int fd = get_fd();
 
     if (type == SOCK_DGRAM) {
         struct localhost* host = rte_malloc("localhost", sizeof(struct localhost), 0);
         if (host == NULL) {
-           goto release_fd;
+           goto put_fd;
         }
         memset(host, 0, sizeof(struct localhost));
 
@@ -29,14 +29,14 @@ int net_socket(UN_USED int domain, int type, UN_USED  int protocol) {
         host->rcvbuf = rte_ring_create("recv buffer", RING_SIZE, rte_socket_id(), 0);
         if (host->rcvbuf == NULL) {
             rte_free(host);
-            goto release_fd;
+            goto put_fd;
         }
 
         host->sndbuf = rte_ring_create("send buffer", RING_SIZE, rte_socket_id(), 0 );
         if (host->sndbuf == NULL) {
             rte_ring_free(host->rcvbuf);
             rte_free(host);
-            goto release_fd;
+            goto put_fd;
         }
 
         pthread_cond_t init_cond = PTHREAD_COND_INITIALIZER;
@@ -49,7 +49,7 @@ int net_socket(UN_USED int domain, int type, UN_USED  int protocol) {
     } else if (type == SOCK_STREAM) {
         struct tcp_stream* stream = rte_malloc("tcp_stream", sizeof(struct tcp_stream), 0);
         if (stream == NULL) {
-            goto release_fd;
+            goto put_fd;
         }
         memset(stream, 0, sizeof(struct tcp_stream));
 
@@ -57,19 +57,19 @@ int net_socket(UN_USED int domain, int type, UN_USED  int protocol) {
         stream->protocol = IPPROTO_TCP;
         stream->next = stream->prev = NULL;
 
-        pthread_cond_t blank_cond = PTHREAD_COND_INITIALIZER;
-        rte_memcpy(&stream->cond, &blank_cond, sizeof(pthread_cond_t));
+        pthread_cond_t init_cond = PTHREAD_COND_INITIALIZER;
+        rte_memcpy(&stream->cond, &init_cond, sizeof(pthread_cond_t));
 
-        pthread_mutex_t blank_mutex = PTHREAD_MUTEX_INITIALIZER;
-        rte_memcpy(&stream->mutex, &blank_mutex, sizeof(pthread_mutex_t));
+        pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
+        rte_memcpy(&stream->mutex, &init_mutex, sizeof(pthread_mutex_t));
 
         tcp_table_add(stream);
     }
 
     return fd;
 
-release_fd:
-    set_fd_to_bitmap(fd);
+put_fd:
+    put_fd(fd);
 
     return -1;
 }
@@ -127,7 +127,8 @@ int net_accept(int sockfd, struct sockaddr* addr, UN_USED socklen_t* addrlen) {
         }
         pthread_mutex_unlock(&stream->mutex);
 
-        acpt->fd = get_fd_from_bitmap();
+        // distinguish syn_rcvd stream and established stream
+        acpt->fd = get_fd();
 
         struct sockaddr_in* saddr = (struct sockaddr_in*)addr;
         saddr->sin_port = acpt->sport;
@@ -165,7 +166,7 @@ ssize_t net_send(int sockfd, const void* buf, size_t len, UN_USED int flags) {
         frag->windows = TCP_INITIAL_WINDOW;
         frag->hdrlen_off = 0x50;
 
-        frag->data = rte_malloc("unsigned char* ", len+1, 0);
+        frag->data = rte_malloc("unsigned char*", len+1, 0);
         if (frag->data == NULL) {
             rte_free(frag);
             return -1;
@@ -185,7 +186,7 @@ ssize_t net_send(int sockfd, const void* buf, size_t len, UN_USED int flags) {
 ssize_t net_recv(int sockfd, void* buf, size_t len, UN_USED int flags) {
     ssize_t length = 0;
 
-    void* hostinfo =  get_hostinfo_by_fd(sockfd);
+    void* hostinfo = get_hostinfo_by_fd(sockfd);
     if (hostinfo == NULL)
         return -1;
 
@@ -205,6 +206,8 @@ ssize_t net_recv(int sockfd, void* buf, size_t len, UN_USED int flags) {
             for (uint32_t i = 0; i < frag->data_len - len; ++i) {
                 frag->data[i] = frag->data[len+i];
             }
+            // rte_memcpy(frag->data, &frag->data[len], frag->data_len-len);
+
             frag->data_len = frag->data_len-len;
             length = frag->data_len;
 
@@ -235,7 +238,7 @@ ssize_t net_recvfrom(
         return -1;
 
     struct offload* ol = NULL;
-    unsigned char* ptr = NULL;
+    unsigned char* data = NULL;
 
     struct sockaddr_in* saddr = (struct sockaddr_in*)src_addr;
 
@@ -248,19 +251,19 @@ ssize_t net_recvfrom(
     saddr->sin_port = ol->sport;
     rte_memcpy(&saddr->sin_addr.s_addr, &ol->sip, sizeof(uint32_t));
 
-    if (len < ol->length) {
+    if (len < ol->data_len) {
         rte_memcpy(buf, ol->data, len);
 
-        ptr = rte_malloc("unsigned char* ", ol->length-len, 0);
-        rte_memcpy(ptr, ol->data+len, ol->length-len);
+        data = rte_malloc("unsigned char* ", ol->data_len-len, 0);
+        rte_memcpy(data, ol->data+len, ol->data_len-len);
 
-        ol->length -= len;
+        ol->data_len -= len;
         rte_free(ol->data);
-        ol->data = ptr;
+        ol->data = data;
 
         rte_ring_mp_enqueue(host->rcvbuf, ol);
     } else {
-        len = ol->length;
+        len = ol->data_len;
         rte_memcpy(buf, ol->data, len);
 
         rte_free(ol->data);
@@ -288,7 +291,7 @@ ssize_t net_sendto(
     ol->dport = daddr->sin_port;
     ol->sip = host->localip;
     ol->sport = host->localport;
-    ol->length = len;
+    ol->data_len = len;
 
     struct in_addr addr;
     addr.s_addr = ol->dip;
@@ -324,7 +327,7 @@ int net_close(int fd) {
 
         rte_free(host);
 
-        set_fd_to_bitmap(fd);
+        put_fd(fd);
 
     } else if (host->protocol == IPPROTO_TCP) {
         struct tcp_stream* stream = (struct tcp_stream*)hostinfo;
@@ -333,8 +336,8 @@ int net_close(int fd) {
             struct tcp_fragment* frag = rte_malloc("tcp_fragment", sizeof(struct tcp_fragment), 0);
             if (frag == NULL)
                 return -1;
+            memset(frag, 0, sizeof(struct tcp_fragment));
 
-            printf("nclose --> enter last ack\n");
             frag->data = NULL;
             frag->data_len = 0;
             frag->sport = stream->dport;
@@ -350,8 +353,7 @@ int net_close(int fd) {
             rte_ring_mp_enqueue(stream->sndbuf, frag);
             stream->status = TCP_STATUS_LAST_ACK;
 
-            set_fd_to_bitmap(fd);
-
+            put_fd(fd);
         } else {
             tcp_table_rm(stream);
 

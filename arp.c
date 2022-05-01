@@ -5,7 +5,6 @@
 #include <rte_arp.h>
 #include <rte_malloc.h>
 
-#include "server.h"
 #include "context.h"
 
 #define TIMER_RESOLUTION_CYCLES 120000000000ULL // 10ms * 1000 = 10s * 6
@@ -17,6 +16,16 @@ static struct arp_table* arp_table_ins = NULL;
 uint8_t gDefaultArpMac[RTE_ETHER_ADDR_LEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 static struct rte_timer arp_timer;
+
+static void print_ip_mac(const char* name, uint32_t ip, uint8_t* mac) {
+    struct in_addr addr;
+    addr.s_addr = ip;
+
+    char buf[RTE_ETHER_ADDR_FMT_SIZE];
+    rte_ether_format_addr(buf, RTE_ETHER_ADDR_FMT_SIZE, (struct rte_ether_addr*)mac);
+
+    printf("%s --> ip: %s, mac: %s\n", name, inet_ntoa(addr), buf);
+}
 
 struct arp_table* get_arp_table(void) {
     if (arp_table_ins == NULL) {
@@ -35,31 +44,34 @@ uint8_t* get_arp_mac(uint32_t dst_ip) {
 
     for (struct arp_entry* iter = table->entries; iter != NULL; iter = iter->next) {
         if (dst_ip == iter->ip) {
-            return iter->hwaddr;
+            return iter->mac;
         }
     }
 
     return NULL;
 }
 
-int arp_table_add(uint32_t ip, uint8_t* hwaddr, uint8_t type) {
-    struct arp_entry* entry = rte_malloc("arp_entry", sizeof(struct arp_entry), 0);
+int arp_table_add(uint32_t ip, uint8_t* mac, uint8_t type) {
+    if (get_arp_mac(ip) == NULL) {
+        struct arp_entry* entry = rte_malloc("arp_entry", sizeof(struct arp_entry), 0);
+        if (entry) {
+            memset(entry, 0, sizeof(struct arp_entry));
 
-    if (entry) {
-        memset(entry, 0, sizeof(struct arp_entry));
+            entry->ip = ip;
+            rte_memcpy(entry->mac, mac, RTE_ETHER_ADDR_LEN);
+            entry->type = type;
 
-        entry->ip = ip;
-        rte_memcpy(entry->hwaddr, hwaddr, RTE_ETHER_ADDR_LEN);
-        entry->type = type;
+            struct arp_table* table = get_arp_table();
+            list_add(entry, table->entries);
+            ++table->count;
 
-        struct arp_table* table = get_arp_table();
-        list_add(entry, table->entries);
-        table->count ++;
+            // print_ip_mac("arp entry add", entry->ip, entry->mac);
 
-        return 0;
+            return 1;
+        }
     }
 
-    return 1;
+    return 0;
 }
 
 int arp_table_rm(uint32_t ip) {
@@ -116,24 +128,11 @@ struct rte_mbuf* make_arp_mbuf(uint16_t opcode, uint8_t* dst_mac, uint32_t sip, 
     return mbuf;
 }
 
-void print_ethaddr(const char* name, const struct rte_ether_addr* eth_addr)
-{
-    char buf[RTE_ETHER_ADDR_FMT_SIZE];
-    rte_ether_format_addr(buf, RTE_ETHER_ADDR_FMT_SIZE, eth_addr);
-    printf("%s%s", name, buf);
-}
-
 void debug_arp_table(void) {
     struct arp_table* table = get_arp_table();
 
     for (struct arp_entry* iter = table->entries; iter != NULL; iter = iter->next) {
-
-        struct in_addr addr;
-        addr.s_addr = iter->ip;
-
-        printf("arp table --> ip: %s, ", inet_ntoa(addr));
-        print_ethaddr("mac: ", (struct rte_ether_addr*)iter->hwaddr);
-        printf("\n");
+        print_ip_mac("arp entry", iter->ip, iter->mac);
     }
 }
 
@@ -158,9 +157,9 @@ void debug_arp_table(void) {
         } else if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) {
             printf("arp --> recv reply\n");
 
-            uint8_t* hwaddr = get_arp_mac(arphdr->arp_data.arp_sip);
+            uint8_t* mac = get_arp_mac(arphdr->arp_data.arp_sip);
 
-            if (hwaddr == NULL) {
+            if (mac == NULL) {
                 arp_table_add(arphdr->arp_data.arp_sip, arphdr->arp_data.arp_sha.addr_bytes, 0);
             }
 

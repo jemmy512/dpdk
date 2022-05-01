@@ -97,14 +97,14 @@ int udp_pkt_handler(struct rte_mbuf* udpmbuf) {
     ol->dport = udphdr->dst_port;
     ol->protocol = IPPROTO_UDP;
 
-    ol->length = ntohs(udphdr->dgram_len) - sizeof(struct rte_udp_hdr);
-    ol->data = rte_malloc("unsigned char*", ol->length, 0);
+    ol->data_len = ntohs(udphdr->dgram_len) - sizeof(struct rte_udp_hdr);
+    ol->data = rte_malloc("unsigned char*", ol->data_len, 0);
     if (ol->data == NULL) {
         rte_pktmbuf_free(udpmbuf);
         rte_free(ol);
         return -2;
     }
-    rte_memcpy(ol->data, (unsigned char*)(udphdr+1), ol->length);
+    rte_memcpy(ol->data, (unsigned char*)(udphdr+1), ol->data_len);
 
     rte_ring_mp_enqueue(host->rcvbuf, ol);
 
@@ -162,18 +162,18 @@ int udp_server_out(void) {
 
         uint8_t* dst_mac = get_arp_mac(ol->dip);
         if (dst_mac == NULL) {
-            struct rte_mbuf* arpbuf = make_arp_mbuf(
-                RTE_ARP_OP_REQUEST, gDefaultArpMac, ol->sip, ol->dip
-            );
+            // struct rte_mbuf* arpbuf = make_arp_mbuf(
+            //     RTE_ARP_OP_REQUEST, gDefaultArpMac, ol->sip, ol->dip
+            // );
 
-            struct inout_ring* ring = get_server_ring();
-            rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
+            // struct inout_ring* ring = get_server_ring();
+            // rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
 
-            rte_ring_mp_enqueue(host->sndbuf, ol);
+            // rte_ring_mp_enqueue(host->sndbuf, ol);
         } else {
             struct rte_mbuf* udpbuf = make_udp_mbuf(
                 ol->sip, ol->dip, ol->sport, ol->dport,
-                host->localmac, dst_mac, ol->data, ol->length
+                host->localmac, dst_mac, ol->data, ol->data_len
             );
 
             printf(", data: %s", ol->data);
