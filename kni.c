@@ -9,6 +9,8 @@
 
 #define MAX_PACKET_SIZE 2048
 
+#define PKT_BURST_SZ 32
+
 struct rte_kni *global_kni = NULL;
 
 struct rte_kni* get_kni(void) {
@@ -72,8 +74,6 @@ struct rte_kni *alloc_kni(void) {
 }
 
 void init_kni(void) {
-    rte_eth_promiscuous_enable(get_dpdk_port());
-
     if (-1 == rte_kni_init(get_dpdk_port())) {
         rte_exit(EXIT_FAILURE, "kni init failed\n");
     }
@@ -81,14 +81,25 @@ void init_kni(void) {
     global_kni = alloc_kni();
 }
 
-int if_handle_by_kni(struct rte_ether_hdr* ehdr) {
+int if_fwd_to_kni(struct rte_ether_hdr* ehdr) {
     struct rte_ipv4_hdr* iphdr = (struct rte_ipv4_hdr*)(ehdr+1);
 
-    if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)
-        || iphdr->next_proto_id == IPPROTO_ICMP)
-    {
-        return 1;
+    int is_arp = ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP);
+    int is_icmp = iphdr->next_proto_id == IPPROTO_ICMP;
+
+    return (is_arp || is_icmp);
+}
+
+void kni_out(void) {
+    struct rte_mbuf *mbufs[PKT_BURST_SZ];
+    int nb_rx = rte_kni_rx_burst(get_kni(), mbufs, PKT_BURST_SZ);
+    if (nb_rx > PKT_BURST_SZ) {
+        return;
     }
 
-    return 0;
+    struct inout_ring* ring = get_server_ring();
+    int nb_tx = rte_ring_mp_enqueue_burst(ring->out, (void**)mbufs, nb_rx, NULL);
+    for (int i = nb_tx; i < nb_rx; ++i) {
+        rte_pktmbuf_free(mbufs[i]);
+    }
 }

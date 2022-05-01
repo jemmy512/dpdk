@@ -162,14 +162,14 @@ int udp_server_out(void) {
 
         uint8_t* dst_mac = get_arp_mac(ol->dip);
         if (dst_mac == NULL) {
-            // struct rte_mbuf* arpbuf = make_arp_mbuf(
-            //     RTE_ARP_OP_REQUEST, gDefaultArpMac, ol->sip, ol->dip
-            // );
+            struct rte_mbuf* arpbuf = make_arp_mbuf(
+                RTE_ARP_OP_REQUEST, gDefaultArpMac, ol->sip, ol->dip
+            );
 
-            // struct inout_ring* ring = get_server_ring();
-            // rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
+            struct inout_ring* ring = get_server_ring();
+            rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
 
-            // rte_ring_mp_enqueue(host->sndbuf, ol);
+            rte_ring_mp_enqueue(host->sndbuf, ol);
         } else {
             struct rte_mbuf* udpbuf = make_udp_mbuf(
                 ol->sip, ol->dip, ol->sport, ol->dport,

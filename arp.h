@@ -8,7 +8,6 @@
 
 #define UN_USED __attribute__((unused))
 
-
 extern uint8_t gDefaultArpMac[RTE_ETHER_ADDR_LEN];
 
 struct arp_entry {
@@ -21,8 +20,9 @@ struct arp_entry {
 };
 
 struct arp_table {
-    struct arp_entry* entries;
     int count;
+    struct arp_entry* entries;
+    pthread_spinlock_t lock;
 };
 
 struct arp_table* get_arp_table(void);

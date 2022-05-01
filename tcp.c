@@ -527,13 +527,13 @@ int tcp_server_out(void) {
 
         uint8_t* dmac = get_arp_mac(stream->sip);
         if (dmac == NULL) {
-            // struct rte_mbuf* arpbuf = make_arp_mbuf(
-            //     RTE_ARP_OP_REQUEST, gDefaultArpMac, stream->dip, stream->sip
-            // );
+            struct rte_mbuf* arpbuf = make_arp_mbuf(
+                RTE_ARP_OP_REQUEST, gDefaultArpMac, stream->dip, stream->sip
+            );
 
-            // struct inout_ring* ring = get_server_ring();
-            // rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
-            // rte_ring_mp_enqueue(stream->sndbuf, frag);
+            struct inout_ring* ring = get_server_ring();
+            rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
+            rte_ring_mp_enqueue(stream->sndbuf, frag);
         } else {
             struct rte_mbuf* tcpbuf = make_tcp_pkt(
                 stream->dip, stream->sip, stream->localmac, dmac, frag

@@ -7,7 +7,7 @@
 
 #include "context.h"
 
-#define TIMER_RESOLUTION_CYCLES 120000000000ULL // 10ms * 1000 = 10s * 6
+#define TIMER_RESOLUTION_CYCLES 60000000000ULL // 10ms * 1000 = 10s * 6
 
 #define ARP_REQ_IP MAKE_IPV4_ADDR(192, 168, 4, 234)
 
@@ -33,7 +33,8 @@ struct arp_table* get_arp_table(void) {
         if (arp_table_ins == NULL) {
             rte_exit(EXIT_FAILURE, "rte_malloc arp table failed\n");
         }
-        memset(arp_table_ins, 0, sizeof(struct  arp_table));
+        memset(arp_table_ins, 0, sizeof(struct arp_table));
+        pthread_spin_init(&arp_table_ins->lock, PTHREAD_PROCESS_SHARED);
     }
 
     return arp_table_ins;
@@ -42,11 +43,15 @@ struct arp_table* get_arp_table(void) {
 uint8_t* get_arp_mac(uint32_t dst_ip) {
     struct arp_table* table = get_arp_table();
 
-    for (struct arp_entry* iter = table->entries; iter != NULL; iter = iter->next) {
+    pthread_spin_lock(&table->lock);
+    int count = table->count;
+    for (struct arp_entry* iter = table->entries; --count > 0 && iter != NULL; iter = iter->next) {
         if (dst_ip == iter->ip) {
+            pthread_spin_unlock(&table->lock);
             return iter->mac;
         }
     }
+    pthread_spin_unlock(&table->lock);
 
     return NULL;
 }
@@ -62,8 +67,11 @@ int arp_table_add(uint32_t ip, uint8_t* mac, uint8_t type) {
             entry->type = type;
 
             struct arp_table* table = get_arp_table();
+
+            pthread_spin_lock(&table->lock);
             list_add(entry, table->entries);
             ++table->count;
+            pthread_spin_unlock(&table->lock);
 
             // print_ip_mac("arp entry add", entry->ip, entry->mac);
 
@@ -75,16 +83,21 @@ int arp_table_add(uint32_t ip, uint8_t* mac, uint8_t type) {
 }
 
 int arp_table_rm(uint32_t ip) {
+    int ret = 1;
     struct arp_table* table = get_arp_table();
 
+    pthread_spin_lock(&table->lock);
     for (struct arp_entry* iter = table->entries; iter != NULL; iter = iter->next) {
         if (ip == iter->ip) {
+            --table->count;
             list_rm(iter, table->entries);
-            return 0;
+            ret = 0;
+            break;
         }
     }
+    pthread_spin_unlock(&table->lock);
 
-    return 1;
+    return ret;
 }
 
 int encode_arp_pkt(uint8_t* msg, uint16_t opcode, uint8_t* dst_mac, uint32_t sip, uint32_t dip) {
@@ -131,9 +144,11 @@ struct rte_mbuf* make_arp_mbuf(uint16_t opcode, uint8_t* dst_mac, uint32_t sip, 
 void debug_arp_table(void) {
     struct arp_table* table = get_arp_table();
 
+    pthread_spin_lock(&table->lock);
     for (struct arp_entry* iter = table->entries; iter != NULL; iter = iter->next) {
         print_ip_mac("arp entry", iter->ip, iter->mac);
     }
+    pthread_spin_unlock(&table->lock);
 }
 
  void arp_pkt_handler(struct rte_mbuf* mbuf) {

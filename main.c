@@ -27,10 +27,11 @@ int main(int argc, char* argv[]) {
     launch_servers();
 
     struct inout_ring* ring = get_server_ring();
-    while (1) {
-        arp_timer_tick();
+    struct rte_mbuf* rx_mbuf[BURST_SIZE];
 
-        struct rte_mbuf* rx_mbuf[BURST_SIZE];
+    while (1) {
+        // arp_timer_tick();
+
         unsigned nb_rx = rte_eth_rx_burst(get_dpdk_port(), 0, rx_mbuf, BURST_SIZE);
         if (nb_rx > BURST_SIZE) {
             rte_exit(EXIT_FAILURE, "Error receiving from eth\n");
@@ -78,15 +79,19 @@ void init_port(void) {
     if (rte_eth_dev_start(port_id) < 0 ) {
         rte_exit(EXIT_FAILURE, "Could not start\n");
     }
+
+    // if (rte_eth_promiscuous_enable(get_dpdk_port())) {
+    //     rte_exit(EXIT_FAILURE, "Count not enable promiscuous mode\n");
+    // }
 }
 
 int pkt_handler(UN_USED void* arg) {
     printf("pkt_handler starting...\n");
 
+    struct rte_mbuf* mbufs[BURST_SIZE];
     struct inout_ring* ring = get_server_ring();
 
     while (1) {
-        struct rte_mbuf* mbufs[BURST_SIZE];
         unsigned nb_rx = rte_ring_mc_dequeue_burst(ring->in, (void**)mbufs, BURST_SIZE, NULL);
 
         for (unsigned i = 0; i < nb_rx; ++i) {
@@ -97,19 +102,11 @@ int pkt_handler(UN_USED void* arg) {
 
             arp_table_add(iphdr->src_addr, ehdr->s_addr.addr_bytes, 0);
 
-            if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
-                // arp_pkt_handler(mbufs[i]);
-                struct in_addr addr;
-                addr.s_addr = iphdr->src_addr;
-                // printf("arp %s\n", inet_ntoa(addr));
-
-                if (!strcmp(inet_ntoa(addr), "192.168.4.234")) {
-                    debug_ip_port("send arp to kni", iphdr->src_addr, iphdr->dst_addr, 0, 0);
-                    rte_kni_tx_burst(get_kni(), mbufs, BURST_SIZE);
-                }
-                else {
-                    rte_pktmbuf_free(mbufs[i]);
-                }
+            if (if_fwd_to_kni(ehdr)) {
+                rte_kni_tx_burst(get_kni(), &mbufs[i], 1);
+            }
+            else if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
+                arp_pkt_handler(mbufs[i]);
             }
             else if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4)) {
                 if (iphdr->next_proto_id == IPPROTO_UDP) {
@@ -119,9 +116,7 @@ int pkt_handler(UN_USED void* arg) {
                     // tcp_pkt_handler(mbufs[i]);
                 }
                 else if (iphdr->next_proto_id == IPPROTO_ICMP) {
-                    // icmp_pkt_handler(mbufs[i]);
-                    // debug_ip_port("send icmp to kni", iphdr->src_addr, iphdr->dst_addr, 0, 0);
-                    rte_kni_tx_burst(get_kni(), &mbufs[i], 1);
+                    icmp_pkt_handler(mbufs[i]);
                 }
                 else {
                     rte_pktmbuf_free(mbufs[i]);
@@ -134,9 +129,11 @@ int pkt_handler(UN_USED void* arg) {
 
         rte_kni_handle_request(get_kni());
 
-        // udp_server_out();
+        kni_out();
 
-        // tcp_server_out();
+        udp_server_out();
+
+        tcp_server_out();
     }
 
     return 0;
