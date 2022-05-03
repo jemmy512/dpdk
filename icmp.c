@@ -8,6 +8,7 @@
 #include <rte_ring.h>
 
 #include "socket.h"
+#include "util.h"
 
 uint16_t icmp_checksum(uint16_t* addr, int count) {
     register long sum = 0;
@@ -94,7 +95,6 @@ void icmp_pkt_handler(struct rte_mbuf* mbuf) {
     struct rte_ipv4_hdr* iphdr = rte_pktmbuf_mtod_offset(
         mbuf, struct rte_ipv4_hdr* , sizeof(struct rte_ether_hdr)
     );
-
     struct rte_icmp_hdr* icmphdr = (struct rte_icmp_hdr*)(iphdr + 1);
 
     struct in_addr addr;
@@ -107,12 +107,8 @@ void icmp_pkt_handler(struct rte_mbuf* mbuf) {
 
         uint16_t data_len = ntohs(iphdr->total_length) - sizeof(struct rte_ipv4_hdr) - sizeof(struct rte_icmp_hdr);
 
-        // TODO fix print
-        printf("icmp data len: %d, data: ", data_len);
-        for (uint16_t i = 0; i < data_len; ++i) {
-            printf("%x-", *((uint16_t*)(icmphdr+1) + i));
-        }
-        printf("\n");
+        // printf("icmp data ");
+        // print_hex((uint8_t*)(icmphdr+1), data_len);
 
         struct rte_mbuf* mbuf = make_icmp_mbuf(
             ehdr->s_addr.addr_bytes,

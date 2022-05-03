@@ -62,13 +62,13 @@ struct inout_ring* get_server_ring(void) {
 
     if (ring_ins->in == NULL) {
         ring_ins->in = rte_ring_create(
-            "in ring", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ
+            "sys in ring", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ
         );
     }
 
     if (ring_ins->out == NULL) {
         ring_ins->out = rte_ring_create(
-            "out ring", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ
+            "sys out ring", RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ
         );
     }
 

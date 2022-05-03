@@ -5,9 +5,24 @@
 
 #include "udp.h"
 #include "arp.h"
+#include "dns.h"
 #include "context.h"
 
-#define UDP_APP_RECV_BUFFER_SIZE 128
+#define UDP_RCV_BUF_LEN 128
+#define UDP_DATA_BUF_LEN 128
+#define Dns_Port 53
+#define Echo_Port 8888
+
+enum host_enum {
+    Host_DNS = 0,
+    Host_Echo,
+    Host_Size
+};
+
+static int listen_fds[Host_Size];
+
+static int init_dns_host(void);
+static int init_echo_host(void);
 
 int encode_udp_pkt(uint8_t* msg, uint32_t sip, uint32_t dip,
     uint16_t sport, uint16_t dport, uint8_t* src_mac, uint8_t* dst_mac,
@@ -120,34 +135,50 @@ int udp_pkt_handler(struct rte_mbuf* udpmbuf) {
 int main_udp_server(UN_USED void* arg) {
     printf("main_udp_server starting...\n");
 
-    int connfd = net_socket(AF_INET, SOCK_DGRAM, 0);
-    if (connfd == -1) {
-        printf("sockfd failed\n");
-        return -1;
-    }
+    listen_fds[Host_DNS] = init_dns_host();
+    listen_fds[Host_Echo] = init_echo_host();
 
-    struct sockaddr_in localaddr, clientaddr;
-    memset(&localaddr, 0, sizeof(struct sockaddr_in));
-
-    localaddr.sin_port = htons(8889);
-    localaddr.sin_family = AF_INET;
-    localaddr.sin_addr.s_addr = get_local_ip();
-
-    net_bind(connfd, (struct sockaddr*)&localaddr, sizeof(localaddr));
-
-    char buffer[UDP_APP_RECV_BUFFER_SIZE] = { 0 };
+    struct sockaddr_in clientaddr;
+    memset(&clientaddr, 0, sizeof(struct sockaddr_in));
     socklen_t addrlen = sizeof(clientaddr);
 
-    while (1) {
-        if (net_recvfrom(connfd, buffer, UDP_APP_RECV_BUFFER_SIZE, 0, (struct sockaddr*)&clientaddr, &addrlen) <= 0) {
+    for (int i = 0; i < Host_Size; ++i) {
+        char* ret = NULL;
+        size_t ret_len = 0;
+        char buf[UDP_RCV_BUF_LEN] = { 0 };
+        char data[UDP_DATA_BUF_LEN] = { 0 };
+
+        int buf_len = net_recvfrom(listen_fds[i], buf, UDP_RCV_BUF_LEN, 0, (struct sockaddr*)&clientaddr, &addrlen);
+        if (buf_len <= 0) {
             continue;
         } else {
-            printf("main_udp_server ---> data: %s\n", buffer);
-            net_sendto(connfd, buffer, strlen(buffer), 0, (struct sockaddr*)&clientaddr, sizeof(clientaddr));
+            printf("main_udp_server ---> data: %s\n", buf);
+
+            switch (i) {
+                case Host_DNS: {
+                    ret_len = dns_pkt_handler((const uint8_t*)buf, buf_len, (uint8_t*)data, UDP_DATA_BUF_LEN);
+                    ret = data;
+                    printf("dns data: %s\n", ret);
+                    break;
+                }
+                default: {
+                    ret = buf;
+                    ret_len = buf_len;
+                    break;
+                }
+            }
+
+            if (ret_len > 0) {
+                net_sendto(listen_fds[i], ret, ret_len, 0, (struct sockaddr*)&clientaddr, sizeof(clientaddr));
+            }
         }
     }
 
-    net_close(connfd);
+    for (int i = 0; i < Host_Size; ++i) {
+        net_close(listen_fds[i]);
+    }
+
+    return 0;
 }
 
 int udp_server_out(void) {
@@ -184,4 +215,42 @@ int udp_server_out(void) {
     }
 
     return 0;
+}
+
+static int init_dns_host(void) {
+    int fd = net_socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == -1) {
+        printf("sockfd failed\n");
+        return -1;
+    }
+
+    struct sockaddr_in localaddr;
+    memset(&localaddr, 0, sizeof(struct sockaddr_in));
+
+    localaddr.sin_port = htons(Dns_Port);
+    localaddr.sin_family = AF_INET;
+    localaddr.sin_addr.s_addr = get_local_ip();
+
+    net_bind(fd, (struct sockaddr*)&localaddr, sizeof(localaddr));
+
+    return fd;
+}
+
+static int init_echo_host(void) {
+    int fd = net_socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == -1) {
+        printf("sockfd failed\n");
+        return -1;
+    }
+
+    struct sockaddr_in localaddr;
+    memset(&localaddr, 0, sizeof(struct sockaddr_in));
+
+    localaddr.sin_port = htons(Echo_Port);
+    localaddr.sin_family = AF_INET;
+    localaddr.sin_addr.s_addr = get_local_ip();
+
+    net_bind(fd, (struct sockaddr*)&localaddr, sizeof(localaddr));
+
+    return fd;
 }

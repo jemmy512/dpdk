@@ -44,8 +44,7 @@ uint8_t* get_arp_mac(uint32_t dst_ip) {
     struct arp_table* table = get_arp_table();
 
     pthread_spin_lock(&table->lock);
-    int count = table->count;
-    for (struct arp_entry* iter = table->entries; --count > 0 && iter != NULL; iter = iter->next) {
+    for (struct arp_entry* iter = table->entries; iter != NULL; iter = iter->next) {
         if (dst_ip == iter->ip) {
             pthread_spin_unlock(&table->lock);
             return iter->mac;

@@ -15,6 +15,8 @@ struct localhost* host_table = NULL;
 
 int net_socket(UN_USED int domain, int type, UN_USED  int protocol) {
     int fd = get_fd();
+    if (fd == -1)
+        return fd;
 
     if (type == SOCK_DGRAM) {
         struct localhost* host = rte_malloc("localhost", sizeof(struct localhost), 0);
@@ -26,13 +28,13 @@ int net_socket(UN_USED int domain, int type, UN_USED  int protocol) {
         host->fd = fd;
         host->protocol = IPPROTO_UDP;
 
-        host->rcvbuf = rte_ring_create("recv buffer", RING_SIZE, rte_socket_id(), 0);
+        host->rcvbuf = rte_ring_create("udp rcv buffer", RING_SIZE, rte_socket_id(), 0);
         if (host->rcvbuf == NULL) {
             rte_free(host);
             goto put_fd;
         }
 
-        host->sndbuf = rte_ring_create("send buffer", RING_SIZE, rte_socket_id(), 0 );
+        host->sndbuf = rte_ring_create("udp snd buffer", RING_SIZE, rte_socket_id(), 0 );
         if (host->sndbuf == NULL) {
             rte_ring_free(host->rcvbuf);
             rte_free(host);

@@ -1,6 +1,7 @@
 #include "main.h"
 
 #include <string.h>
+#include <netinet/ether.h>
 
 #include "tcp.h"
 #include "udp.h"
@@ -28,6 +29,7 @@ int main(int argc, char* argv[]) {
 
     struct inout_ring* ring = get_server_ring();
     struct rte_mbuf* rx_mbuf[BURST_SIZE];
+    struct rte_mbuf* tx_mbuf[BURST_SIZE];
 
     while (1) {
         // arp_timer_tick();
@@ -39,7 +41,6 @@ int main(int argc, char* argv[]) {
             rte_ring_sp_enqueue_burst(ring->in, (void**)rx_mbuf, nb_rx, NULL);
         }
 
-        struct rte_mbuf* tx_mbuf[BURST_SIZE];
         unsigned nb_tx = rte_ring_sc_dequeue_burst(ring->out, (void**)tx_mbuf, BURST_SIZE, NULL);
         if (nb_tx > 0) {
             rte_eth_tx_burst(get_dpdk_port(), 0, tx_mbuf, nb_tx);
@@ -48,6 +49,56 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+}
+
+int pkt_handler(UN_USED void* arg) {
+    printf("pkt_handler starting...\n");
+
+    struct rte_mbuf* mbufs[BURST_SIZE];
+    struct inout_ring* ring = get_server_ring();
+
+    while (1) {
+        unsigned nb_rx = rte_ring_mc_dequeue_burst(ring->in, (void**)mbufs, BURST_SIZE, NULL);
+
+        for (unsigned i = 0; i < nb_rx; ++i) {
+            struct rte_ether_hdr* ehdr = rte_pktmbuf_mtod(mbufs[i], struct rte_ether_hdr*);
+            struct rte_ipv4_hdr* iphdr =  rte_pktmbuf_mtod_offset(
+                mbufs[i], struct rte_ipv4_hdr*, sizeof(struct rte_ether_hdr)
+            );
+
+            arp_table_add(iphdr->src_addr, ehdr->s_addr.addr_bytes, 0);
+
+            if (is_fwd_to_kni(ehdr)) {
+                rte_kni_tx_burst(get_kni(), &mbufs[i], 1);
+            }
+            else if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
+                arp_pkt_handler(mbufs[i]);
+            } else if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4)) {
+                if (iphdr->next_proto_id == IPPROTO_UDP) {
+                    udp_pkt_handler(mbufs[i]);
+                } else if (iphdr->next_proto_id == IPPROTO_TCP) {
+                    tcp_pkt_handler(mbufs[i]);
+                } else if (iphdr->next_proto_id == IPPROTO_ICMP) {
+                    icmp_pkt_handler(mbufs[i]);
+                } else {
+                    rte_pktmbuf_free(mbufs[i]);
+                }
+            }
+            else {
+                rte_pktmbuf_free(mbufs[i]);
+            }
+        }
+
+        rte_kni_handle_request(get_kni());
+
+        // kni_out();
+
+        udp_server_out();
+
+        tcp_server_out();
+    }
+
+    return 0;
 }
 
 void init_port(void) {
@@ -85,60 +136,6 @@ void init_port(void) {
     // }
 }
 
-int pkt_handler(UN_USED void* arg) {
-    printf("pkt_handler starting...\n");
-
-    struct rte_mbuf* mbufs[BURST_SIZE];
-    struct inout_ring* ring = get_server_ring();
-
-    while (1) {
-        unsigned nb_rx = rte_ring_mc_dequeue_burst(ring->in, (void**)mbufs, BURST_SIZE, NULL);
-
-        for (unsigned i = 0; i < nb_rx; ++i) {
-            struct rte_ether_hdr* ehdr = rte_pktmbuf_mtod(mbufs[i], struct rte_ether_hdr*);
-            struct rte_ipv4_hdr* iphdr =  rte_pktmbuf_mtod_offset(
-                mbufs[i], struct rte_ipv4_hdr*, sizeof(struct rte_ether_hdr)
-            );
-
-            arp_table_add(iphdr->src_addr, ehdr->s_addr.addr_bytes, 0);
-
-            if (if_fwd_to_kni(ehdr)) {
-                rte_kni_tx_burst(get_kni(), &mbufs[i], 1);
-            }
-            else if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
-                arp_pkt_handler(mbufs[i]);
-            }
-            else if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4)) {
-                if (iphdr->next_proto_id == IPPROTO_UDP) {
-                    // udp_pkt_handler(mbufs[i]);
-                }
-                else if (iphdr->next_proto_id == IPPROTO_TCP) {
-                    // tcp_pkt_handler(mbufs[i]);
-                }
-                else if (iphdr->next_proto_id == IPPROTO_ICMP) {
-                    icmp_pkt_handler(mbufs[i]);
-                }
-                else {
-                    rte_pktmbuf_free(mbufs[i]);
-                }
-            }
-            else {
-                rte_pktmbuf_free(mbufs[i]);
-            }
-        }
-
-        rte_kni_handle_request(get_kni());
-
-        kni_out();
-
-        udp_server_out();
-
-        tcp_server_out();
-    }
-
-    return 0;
-}
-
 void launch_servers(void) {
     unsigned lcore_id = rte_lcore_id();
     unsigned lcore_1 = rte_get_next_lcore(lcore_id, 1, 0);
@@ -148,5 +145,5 @@ void launch_servers(void) {
 
     rte_eal_remote_launch(pkt_handler, NULL, lcore_1);
     // rte_eal_remote_launch(main_tcp_server, NULL, lcore_2);
-    // rte_eal_remote_launch(main_udp_server, NULL, lcore_3);
+    rte_eal_remote_launch(main_udp_server, NULL, lcore_2);
 }
