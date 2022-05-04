@@ -23,7 +23,7 @@ int main(int argc, char* argv[]) {
     init_server_context();
     init_port();
     // init_arp_timer();
-    init_kni();
+    // init_kni();
 
     launch_servers();
 
@@ -89,7 +89,7 @@ int pkt_handler(UN_USED void* arg) {
             }
         }
 
-        rte_kni_handle_request(get_kni());
+        // rte_kni_handle_request(get_kni());
 
         // kni_out();
 

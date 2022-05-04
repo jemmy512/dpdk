@@ -12,8 +12,11 @@
 #include "context.h"
 
 struct localhost* host_table = NULL;
+pthread_spinlock_t host_table_lock = PTHREAD_PROCESS_SHARED;
 
-int net_socket(UN_USED int domain, int type, UN_USED  int protocol) {
+static uint64_t ring_id = 0;
+
+int net_socket(UN_USED int domain, int type, UN_USED int protocol) {
     int fd = get_fd();
     if (fd == -1)
         return fd;
@@ -28,13 +31,19 @@ int net_socket(UN_USED int domain, int type, UN_USED  int protocol) {
         host->fd = fd;
         host->protocol = IPPROTO_UDP;
 
-        host->rcvbuf = rte_ring_create("udp rcv buffer", RING_SIZE, rte_socket_id(), 0);
+        char rcv_name[64];
+        snprintf(rcv_name, 64, "udp rcv ring %d", ring_id);
+        printf("ring name 1: %s\n", rcv_name);
+        host->rcvbuf = rte_ring_create(rcv_name, RING_SIZE, rte_socket_id(), 0);
         if (host->rcvbuf == NULL) {
             rte_free(host);
             goto put_fd;
         }
 
-        host->sndbuf = rte_ring_create("udp snd buffer", RING_SIZE, rte_socket_id(), 0 );
+        char snd_name[64];
+        snprintf(snd_name, 64, "udp snd ring %d", ring_id++);
+        printf("ring name 2: %s\n", snd_name);
+        host->sndbuf = rte_ring_create(snd_name, RING_SIZE, rte_socket_id(), 0 );
         if (host->sndbuf == NULL) {
             rte_ring_free(host->rcvbuf);
             rte_free(host);
@@ -47,7 +56,9 @@ int net_socket(UN_USED int domain, int type, UN_USED  int protocol) {
         pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
         rte_memcpy(&host->mutex, &init_mutex, sizeof(pthread_mutex_t));
 
+        pthread_spin_lock(&host_table_lock);
         list_add(host, host_table);
+        pthread_spin_unlock(&host_table_lock);
     } else if (type == SOCK_STREAM) {
         struct tcp_stream* stream = rte_malloc("tcp_stream", sizeof(struct tcp_stream), 0);
         if (stream == NULL) {
@@ -297,7 +308,7 @@ ssize_t net_sendto(
 
     struct in_addr addr;
     addr.s_addr = ol->dip;
-    printf("net_sendto ---> src [%s:%d], data: %s", inet_ntoa(addr), ntohs(ol->dport), (const char*)buf);
+    // printf("net_sendto ---> src [%s:%d], data: %s\n", inet_ntoa(addr), ntohs(ol->dport), (const char*)buf);
 
     ol->data = rte_malloc("unsigned char* ", len, 0);
     if (ol->data == NULL) {
@@ -367,11 +378,19 @@ int net_close(int fd) {
 }
 
 void* get_hostinfo_by_fd(int sockfd) {
+    void* ret = NULL;
+
+    pthread_spin_lock(&host_table_lock);
     for (struct localhost* host = host_table; host != NULL; host = host->next) {
         if (sockfd == host->fd) {
-            return host;
+            ret = (void*)host;
+            break;
         }
     }
+    pthread_spin_unlock(&host_table_lock);
+
+    if (ret)
+        return ret;
 
     struct tcp_stream* stream = NULL;
     struct tcp_table* table = get_tcp_table();
@@ -386,17 +405,22 @@ void* get_hostinfo_by_fd(int sockfd) {
 }
 
 struct localhost* get_hostinfo_by_ip_port(uint32_t dip, uint16_t port, uint8_t proto) {
+    pthread_spin_lock(&host_table_lock);
     for (struct localhost* host = host_table; host != NULL; host = host->next) {
         if (dip == host->localip && port == host->localport && proto == host->protocol) {
+            pthread_spin_unlock(&host_table_lock);
             return host;
         }
     }
+    pthread_spin_unlock(&host_table_lock);
 
     return NULL;
 }
 
 void hostinfo_rm(struct localhost* host) {
+    pthread_spin_lock(&host_table_lock);
     list_rm(host, host_table);
+    pthread_spin_unlock(&host_table_lock);
 }
 
 void debug_ip_port(const char* name, uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport) {

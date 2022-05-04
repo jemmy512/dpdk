@@ -10,7 +10,7 @@
 #include "socket.h"
 #include "util.h"
 
-uint16_t icmp_checksum(uint16_t* addr, int count) {
+uint16_t icmp_cksum(uint16_t* addr, int count) {
     register long sum = 0;
 
     while (count > 1) {
@@ -65,7 +65,7 @@ int encode_icmp_pkt(uint8_t* msg, uint8_t* dst_mac,
     }
 
     icmphdr->icmp_cksum = 0;
-    icmphdr->icmp_cksum = icmp_checksum((uint16_t*)icmphdr, sizeof(struct rte_icmp_hdr) + data_len);
+    icmphdr->icmp_cksum = icmp_cksum((uint16_t*)icmphdr, sizeof(struct rte_icmp_hdr) + data_len);
 
     return 0;
 }

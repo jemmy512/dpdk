@@ -1,3 +1,12 @@
+/* This software is licensed under the CC0.
+*
+* This is a _basic_ DNS Server for educational use.
+* It does not prevent invalid packets from crashing
+* the server.
+*
+* To test start the program and issue a DNS request:
+*  dig @127.0.0.1 -p 9000 foo.bar.com */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
@@ -13,21 +22,8 @@
 
 #include "dns.h"
 
-#define BUF_SIZE 1500
 #define MIN(x, y) ((x) <= (y) ? (x) : (y))
-
-
-/*
-* This software is licensed under the CC0.
-*
-* This is a _basic_ DNS Server for educational use.
-* It does not prevent invalid packets from crashing
-* the server.
-*
-* To test start the program and issue a DNS request:
-*  dig @127.0.0.1 -p 9000 foo.bar.com
-*/
-
+#define BUF_SIZE 1500
 
 /*
 * Masks and constants.
@@ -44,7 +40,7 @@ static const uint32_t RCODE_MASK = 0x000F;
 
 static int get_A_Record(uint8_t addr[4], const char domain_name[])
 {
-  if (strcmp("arno.0voice.com", domain_name) == 0) {
+  if (strcmp("afar.robot.com", domain_name) == 0) {
     addr[0] = 192;
     addr[1] = 168;
     addr[2] = 232;
@@ -57,7 +53,7 @@ static int get_A_Record(uint8_t addr[4], const char domain_name[])
 
 static int get_AAAA_Record(uint8_t addr[16], const char domain_name[])
 {
-  if (strcmp("arno.0voice.com", domain_name) == 0) {
+  if (strcmp("afar.robot.com", domain_name) == 0) {
     addr[0] = 0xfe;
     addr[1] = 0x80;
     addr[2] = 0x00;
@@ -82,8 +78,8 @@ static int get_AAAA_Record(uint8_t addr[16], const char domain_name[])
 
 static int get_TXT_Record(char **addr, const char domain_name[])
 {
-  if (strcmp("arno.0voice.com", domain_name) == 0) {
-    *addr = "abcdefg";
+  if (strcmp("afar.robot.com", domain_name) == 0) {
+    *addr = "It's google";
     return 0;
   } else {
     return -1;
@@ -192,7 +188,7 @@ static void put16bits(uint8_t **buffer, uint16_t value)
 static void put32bits(uint8_t **buffer, uint32_t value)
 {
   value = htonl(value);
-  memcpy(*buffer, &value, 4);
+  memcpy(*buffer, &value, 0);
   *buffer += 4;
 }
 
@@ -304,7 +300,7 @@ int decode_msg(struct Message *msg, const uint8_t *buffer, int size)
   // parse questions
   uint32_t qcount = msg->qdCount;
   for (i = 0; i < qcount; ++i) {
-    struct Question *q = rte_malloc("Question", sizeof(struct Question), 4);
+    struct Question *q = rte_malloc("Question", sizeof(struct Question), 0);
 
     q->qName = decode_domain_name(&buffer, size);
     q->qType = get16bits(&buffer);
@@ -348,7 +344,7 @@ void resolve_query(struct Message *msg)
   // for every question append resource records
   q = msg->questions;
   while (q) {
-    rr = rte_malloc("ResourceRecord", sizeof(struct ResourceRecord), 4);
+    rr = rte_malloc("ResourceRecord", sizeof(struct ResourceRecord), 0);
     memset(rr, 0, sizeof(struct ResourceRecord));
 
     rr->name = strdup(q->qName);
@@ -368,7 +364,7 @@ void resolve_query(struct Message *msg)
         rc = get_A_Record(rr->rd_data.a_record.addr, q->qName);
         if (rc < 0)
         {
-          rte_free(rr->name);
+          free(rr->name);
           rte_free(rr);
           goto next;
         }
@@ -378,7 +374,7 @@ void resolve_query(struct Message *msg)
         rc = get_AAAA_Record(rr->rd_data.aaaa_record.addr, q->qName);
         if (rc < 0)
         {
-          rte_free(rr->name);
+          free(rr->name);
           rte_free(rr);
           goto next;
         }
@@ -386,7 +382,7 @@ void resolve_query(struct Message *msg)
       case TXT_Resource_RecordType:
         rc = get_TXT_Record(&(rr->rd_data.txt_record.txt_data), q->qName);
         if (rc < 0) {
-          rte_free(rr->name);
+          free(rr->name);
           rte_free(rr);
           goto next;
         }
@@ -491,7 +487,7 @@ void free_resource_records(struct ResourceRecord *rr)
   struct ResourceRecord *next;
 
   while (rr) {
-    rte_free(rr->name);
+    free(rr->name);
     next = rr->next;
     rte_free(rr);
     rr = next;
@@ -510,7 +506,7 @@ void free_questions(struct Question *qq)
   }
 }
 
-int dns_pkt_handler(const uint8_t* buf, size_t buf_len, uint8_t* data, UN_USED size_t data_len) {
+int dns_pkt_handler(uint8_t* buf, size_t buf_len) {
     struct Message msg;
     memset(&msg, 0, sizeof(struct Message));
 
@@ -518,82 +514,16 @@ int dns_pkt_handler(const uint8_t* buf, size_t buf_len, uint8_t* data, UN_USED s
       return -1;
     }
 
-
-//    print_message(&msg);
+    // print_message(&msg);
 
     resolve_query(&msg);
 
-    uint8_t* ptr = data;
+    uint8_t* ptr = buf;
     if (encode_msg(&msg, &ptr)) {
       return -1;
     }
 
-    return ptr - data;
+    // print_message(&msg);
+
+    return ptr - buf;
 }
-
-#if 0
-int main()
-{
-  // buffer for input/output binary packet
-  uint8_t buffer[BUF_SIZE];
-  struct sockaddr_in client_addr;
-  socklen_t addr_len = sizeof(struct sockaddr_in);
-  struct sockaddr_in addr;
-  int nbytes, rc;
-  int sock;
-  int port = 53;
-
-  struct Message msg;
-  memset(&msg, 0, sizeof(struct Message));
-
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = INADDR_ANY;
-  addr.sin_port = htons(port);
-
-  sock = socket(AF_INET, SOCK_DGRAM, 0);
-
-  rc = bind(sock, (struct sockaddr*) &addr, addr_len);
-
-  if (rc != 0) {
-    printf("Could not bind: %s\n", strerror(errno));
-    return 1;
-  }
-
-  printf("Listening on port %u.\n", port);
-
-  while (1) {
-    free_questions(msg.questions);
-    free_resource_records(msg.answers);
-    free_resource_records(msg.authorities);
-    free_resource_records(msg.additionals);
-    memset(&msg, 0, sizeof(struct Message));
-
-    /* Receive DNS query */
-    nbytes = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *) &client_addr, &addr_len);
-
-    if (decode_msg(&msg, buffer, nbytes) != 0) {
-      continue;
-    }
-
-    /* Print query */
-//    print_message(&msg);
-
-    /* Resolve query and put the answers into the query message */
-    resolve_query(&msg);
-
-    /* Print response */
-//    print_message(&msg);
-
-    uint8_t *p = buffer;
-    if (encode_msg(&msg, &p) != 0) {
-      continue;
-    }
-
-    /* Send DNS response */
-    int buflen = p - buffer;
-//	printf("nbytes : %d, buflen : %d\n", nbytes, buflen);
-    sendto(sock, buffer, buflen, 0, (struct sockaddr*) &client_addr, addr_len);
-  }
-}
-
-#endif

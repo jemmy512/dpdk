@@ -131,4 +131,4 @@ void free_resource_records(struct ResourceRecord *rr);
 
 void print_message(struct Message *msg);
 
-int dns_pkt_handler(const uint8_t* buf, size_t buf_len, uint8_t* data, size_t data_len);
+int dns_pkt_handler(uint8_t* buf, size_t buf_len);

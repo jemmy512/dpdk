@@ -1,6 +1,7 @@
 #include "kni.h"
 
 #include <netinet/ether.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
 
 #include <rte_ether.h>
@@ -9,6 +10,8 @@
 #include <assert.h>
 
 #include "context.h"
+
+/* ifconfig vEth0 192.168.4.94 hw ether xx:xx:xx:xx:xx:xx up */
 
 #define MAX_PACKET_SIZE 2048
 
@@ -81,12 +84,6 @@ struct rte_kni *alloc_kni(void) {
     rte_eth_macaddr_get(port_id, (struct rte_ether_addr *)conf.mac_addr);
     rte_eth_dev_get_mtu(port_id, &conf.mtu);
 
-/*
-    struct rte_eth_dev_info dev_info;
-    memset(&dev_info, 0, sizeof(dev_info));
-    rte_eth_dev_info_get(port_id, &dev_info);
-    */
-
     struct rte_kni_ops ops;
     memset(&ops, 0, sizeof(ops));
 
@@ -123,8 +120,14 @@ int is_fwd_to_kni(struct rte_ether_hdr* ehdr) {
     int is_arp = ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP);
     int is_icmp = iphdr->next_proto_id == IPPROTO_ICMP;
 
+    return (is_arp || is_icmp);
+
+    struct in_addr addr;
+    addr.s_addr = iphdr->src_addr;
+
     char* src_mac = ether_ntoa((struct ether_addr*)&ehdr->s_addr);
-    if (!strcmp(src_mac, "88:66:5a:53:3a:d0")) {
+    char* src_ip = inet_ntoa(addr);
+    if (!strcmp(src_mac, "88:66:5a:53:3a:d0") && !strcmp(src_ip, "192.168.4.234")) {
         struct in_addr addr;
         addr.s_addr = iphdr->src_addr;
         printf("is_fwd_to_kni src: %s, mac:%s, ether[%d], ip[%d]\n", inet_ntoa(addr), src_mac, ntohs(ehdr->ether_type), iphdr->next_proto_id);
@@ -162,8 +165,7 @@ void kni_out(void) {
     }
 }
 
-static void
-log_link_state(struct rte_kni *kni, int prev, struct rte_eth_link *link)
+static void log_link_state(struct rte_kni *kni, int prev, struct rte_eth_link *link)
 {
     if (kni == NULL || link == NULL)
         return;
@@ -172,8 +174,9 @@ log_link_state(struct rte_kni *kni, int prev, struct rte_eth_link *link)
         printf("%s NIC Link is Up %d Mbps %s %s.\n",
             rte_kni_get_name(kni),
             link->link_speed,
-            link->link_autoneg ?  "(AutoNeg)" : "(Fixed)",
-            link->link_duplex ?  "Full Duplex" : "Half Duplex");
+            link->link_autoneg ? "(AutoNeg)" : "(Fixed)",
+            link->link_duplex ? "Full Duplex" : "Half Duplex"
+        );
     } else if (prev == ETH_LINK_UP && link->link_status == ETH_LINK_DOWN) {
         printf("%s NIC Link is Down.\n", rte_kni_get_name(kni));
     }
@@ -194,6 +197,7 @@ static void* monitor_port_link_status(UN_USED void *arg) {
             continue;
         }
 
+        /* /sys/devices/virtual/net/%s/carrier */
         int prev = rte_kni_update_link(get_kni(), link.link_status);
         log_link_state(get_kni(), prev, &link);
     }
