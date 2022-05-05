@@ -81,9 +81,8 @@ static int get_TXT_Record(char **addr, const char domain_name[])
   if (strcmp("afar.robot.com", domain_name) == 0) {
     *addr = "It's google";
     return 0;
-  } else {
-    return -1;
   }
+  return -1;
 }
 
 static void print_resource_record(struct ResourceRecord *rr)

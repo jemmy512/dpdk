@@ -181,10 +181,11 @@ int udp_server_out(void) {
     for (struct localhost* host = host_table; host != NULL; host = host->next) {
         struct offload* ol;
         int nb_snd = rte_ring_mc_dequeue(host->sndbuf, (void**)&ol);
-        if (nb_snd < 0) continue;
+        if (nb_snd < 0)
+            continue;
 
-        struct in_addr addr;
-        addr.s_addr = ol->dip;
+        // struct in_addr addr;
+        // addr.s_addr = ol->dip;
         // printf("udp_out ---> src [%s:%d]", inet_ntoa(addr), ntohs(ol->dport));
 
         uint8_t* dst_mac = get_arp_mac(ol->dip);

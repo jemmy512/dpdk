@@ -34,12 +34,13 @@ typedef enum _TCP_STATUS {
 
 struct tcp_stream {
     int fd;
-
     uint32_t dip;
     uint8_t localmac[RTE_ETHER_ADDR_LEN];
     uint16_t dport;
-
     uint8_t protocol;
+    int wait_len;
+    int wait_que[1024];
+    /* the above members must in the same order with localhost */
 
     uint16_t sport;
     uint32_t sip;

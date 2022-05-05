@@ -42,8 +42,10 @@ struct localhost {
     uint32_t localip;
     uint8_t localmac[RTE_ETHER_ADDR_LEN];
     uint16_t localport;
-
     uint8_t protocol;
+    int wait_len;
+    int wait_queue[1024];
+    /* the above members must in the same order with tcp_stream */
 
     struct rte_ring* sndbuf;
     struct rte_ring* rcvbuf;

@@ -11,6 +11,8 @@
 #include "socket.h"
 #include "arp.h"
 #include "context.h"
+#include "file.h"
+#include "epoll.h"
 
 #define BUFFER_SIZE	1024
 
@@ -142,11 +144,20 @@ struct tcp_stream* tcp_stream_create(uint32_t sip, uint32_t dip, uint16_t sport,
 
     stream->status = TCP_STATUS_LISTEN;
 
-    char ring_name[32];
-    snprintf(ring_name, 32, "tcp snd ring %u:%u", sip, dip);
-    stream->sndbuf = rte_ring_create(ring_name, RING_SIZE, rte_socket_id(), 0);
-    snprintf(ring_name, 32, "tpc rcv ring %u:%u", sip, dip);
-    stream->rcvbuf = rte_ring_create(ring_name, RING_SIZE, rte_socket_id(), 0);
+    struct in_addr saddr;
+    saddr.s_addr = sip;
+    char* src_ip = inet_ntoa(saddr);
+    uint16_t src_port = ntohs(sport);
+
+    char tx_name[32] = {0};
+    snprintf(tx_name, 32, "tcpsnd%s:%d", src_ip, src_port);
+    stream->sndbuf = rte_ring_create(tx_name, RING_SIZE, rte_socket_id(), 0);
+    printf("%s\n", tx_name);
+
+    char rx_name[32] = {0};
+    snprintf(rx_name, 32, "tcprcv%s:%d", src_ip, src_port);
+    stream->rcvbuf = rte_ring_create(rx_name, RING_SIZE, rte_socket_id(), 0);
+    printf("%s\n", rx_name);
 
     uint32_t next_seed = time(NULL);
     stream->snd_nxt = rand_r(&next_seed) % TCP_MAX_SEQ;
@@ -215,6 +226,8 @@ int tcp_handle_syn_rcvd(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr) {
         pthread_mutex_lock(&listener->mutex);
         pthread_cond_signal(&listener->cond);
         pthread_mutex_unlock(&listener->mutex);
+
+        epoll_callback(get_epoll(), listener->fd, EPOLLIN);
     }
 
     return 0;
@@ -258,7 +271,6 @@ int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
         tcp_enqueue_rcvbuf(stream, tcphdr, tcplen);
 
 #endif
-
 
 #if 0
         // ack pkt
@@ -366,7 +378,6 @@ int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
         stream->snd_nxt = ntohl(tcphdr->recv_ack);
 
         tcp_send_ack(stream, tcphdr);
-
     }
 
     return 0;
@@ -457,6 +468,8 @@ int tcp_enqueue_rcvbuf(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr, in
     pthread_cond_signal(&stream->cond);
     pthread_mutex_unlock(&stream->mutex);
 
+    epoll_callback(get_epoll(), stream->fd, EPOLLIN);
+
     return 0;
 }
 
@@ -477,22 +490,39 @@ int main_tcp_server(UN_USED void* arg) {
 
     net_listen(listenfd, 10);
 
-    while (1) {
-        struct sockaddr_in client;
-        socklen_t len = sizeof(client);
-        int connfd = net_accept(listenfd, (struct sockaddr*)&client, &len);
+    int epfd = nepoll_create(1);
+    struct epoll_event ev, events[128];
+    ev.events = EPOLLIN;
+    ev.data.fd = listenfd;
+    nepoll_ctl(epfd, EPOLL_CTL_ADD, listenfd, &ev);
 
-        char buff[BUFFER_SIZE] = {0};
-        while (1) {
-            int n = net_recv(connfd, buff, BUFFER_SIZE, 0); //block
-            if (n > 0) {
-                printf("recv: %s\n", buff);
-                net_send(connfd, buff, n, 0);
-            } else if (n == 0) {
-                net_close(connfd);
-                break;
+    char buff[BUFFER_SIZE] = {0};
+    while (1) {
+        printf("epoll going to sleep\n");
+        int nb_ready = nepoll_wait(epfd, events, 128, -1);
+        printf("epoll wake up, %d\n", nb_ready);
+
+        for (int i = 0; i < nb_ready; ++i) {
+            if (listenfd == events[i].data.fd) {
+                struct sockaddr_in client;
+                socklen_t len = sizeof(client);
+                int connfd = net_accept(listenfd, (struct sockaddr*)&client, &len);
+
+                struct epoll_event ev;
+                ev.events = EPOLLIN;
+                ev.data.fd = connfd;
+                nepoll_ctl(epfd, EPOLL_CTL_ADD, connfd, &ev);
             } else {
-                // TODO nonblock
+                int connfd = events[i].data.fd;
+
+                int nb_rx = net_recv(connfd, buff, BUFFER_SIZE, 0);
+                if (nb_rx > 0) {
+                    printf("rcv: %s\n", buff);
+                    net_send(connfd, buff, nb_rx, 0);
+                } else {
+                    nepoll_ctl(epfd, EPOLL_CTL_DEL, connfd, NULL);
+                    net_close(connfd);
+                }
             }
         }
     }

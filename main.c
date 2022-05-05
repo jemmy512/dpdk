@@ -10,6 +10,8 @@
 #include "kni.h"
 #include "ddos.h"
 
+#define Eable_DDOS 0
+
 #define BURST_SIZE 32
 
 static const struct rte_eth_conf port_conf_default = {
@@ -61,6 +63,7 @@ int pkt_handler(UN_USED void* arg) {
     while (1) {
         unsigned nb_rx = rte_ring_mc_dequeue_burst(ring->in, (void**)mbufs, BURST_SIZE, NULL);
 
+#if Eable_DDOS
         for (unsigned i = 0; i < nb_rx; ++i) {
             if (ddos_detect(mbufs[i])) {
                 for (unsigned j = 0; j < nb_rx; ++j) {
@@ -69,6 +72,8 @@ int pkt_handler(UN_USED void* arg) {
                 }
             }
         }
+
+#endif
 
         for (unsigned i = 0; i < nb_rx; ++i) {
             struct rte_ether_hdr* ehdr = rte_pktmbuf_mtod(mbufs[i], struct rte_ether_hdr*);
