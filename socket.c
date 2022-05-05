@@ -14,8 +14,6 @@
 struct localhost* host_table = NULL;
 pthread_spinlock_t host_table_lock = PTHREAD_PROCESS_SHARED;
 
-static uint64_t ring_id = 0;
-
 int net_socket(UN_USED int domain, int type, UN_USED int protocol) {
     int fd = get_fd();
     if (fd == -1)
@@ -31,18 +29,16 @@ int net_socket(UN_USED int domain, int type, UN_USED int protocol) {
         host->fd = fd;
         host->protocol = IPPROTO_UDP;
 
-        char rcv_name[64];
-        snprintf(rcv_name, 64, "udp rcv ring %d", ring_id);
-        printf("ring name 1: %s\n", rcv_name);
+        char rcv_name[32] = { 0 };
+        snprintf(rcv_name, 32, "udp rcv ring %d", fd);
         host->rcvbuf = rte_ring_create(rcv_name, RING_SIZE, rte_socket_id(), 0);
         if (host->rcvbuf == NULL) {
             rte_free(host);
             goto put_fd;
         }
 
-        char snd_name[64];
-        snprintf(snd_name, 64, "udp snd ring %d", ring_id++);
-        printf("ring name 2: %s\n", snd_name);
+        char snd_name[32] = { 0 };
+        snprintf(snd_name, 32, "udp snd ring %d", fd);
         host->sndbuf = rte_ring_create(snd_name, RING_SIZE, rte_socket_id(), 0 );
         if (host->sndbuf == NULL) {
             rte_ring_free(host->rcvbuf);
@@ -306,8 +302,8 @@ ssize_t net_sendto(
     ol->sport = host->localport;
     ol->data_len = len;
 
-    struct in_addr addr;
-    addr.s_addr = ol->dip;
+    // struct in_addr addr;
+    // addr.s_addr = ol->dip;
     // printf("net_sendto ---> src [%s:%d], data: %s\n", inet_ntoa(addr), ntohs(ol->dport), (const char*)buf);
 
     ol->data = rte_malloc("unsigned char* ", len, 0);

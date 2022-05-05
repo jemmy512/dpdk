@@ -66,7 +66,9 @@ static int config_mac_address(uint16_t port_id, uint8_t mac_addr[]) {
         );
     }
 
-    printf("Configure mac address of port: %d, mac: %s\n", port_id, ether_ntoa((struct ether_addr*)(mac_addr)));
+    printf("Configure mac address of port: %d, mac: %s\n",
+        port_id, ether_ntoa((struct ether_addr*)(mac_addr))
+    );
 
     return ret;
 }
@@ -130,7 +132,9 @@ int is_fwd_to_kni(struct rte_ether_hdr* ehdr) {
     if (!strcmp(src_mac, "88:66:5a:53:3a:d0") && !strcmp(src_ip, "192.168.4.234")) {
         struct in_addr addr;
         addr.s_addr = iphdr->src_addr;
-        printf("is_fwd_to_kni src: %s, mac:%s, ether[%d], ip[%d]\n", inet_ntoa(addr), src_mac, ntohs(ehdr->ether_type), iphdr->next_proto_id);
+        printf("is_fwd_to_kni src: %s, mac:%s, ether[%d], ip[%d]\n",
+            inet_ntoa(addr), src_mac, ntohs(ehdr->ether_type), iphdr->next_proto_id
+        );
         return (is_arp || is_icmp);
     }
 

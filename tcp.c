@@ -142,8 +142,11 @@ struct tcp_stream* tcp_stream_create(uint32_t sip, uint32_t dip, uint16_t sport,
 
     stream->status = TCP_STATUS_LISTEN;
 
-    stream->sndbuf = rte_ring_create("tcp snd ring", RING_SIZE, rte_socket_id(), 0);
-    stream->rcvbuf = rte_ring_create("tcp rcv ring", RING_SIZE, rte_socket_id(), 0);
+    char ring_name[32];
+    snprintf(ring_name, 32, "tcp snd ring %u:%u", sip, dip);
+    stream->sndbuf = rte_ring_create(ring_name, RING_SIZE, rte_socket_id(), 0);
+    snprintf(ring_name, 32, "tpc rcv ring %u:%u", sip, dip);
+    stream->rcvbuf = rte_ring_create(ring_name, RING_SIZE, rte_socket_id(), 0);
 
     uint32_t next_seed = time(NULL);
     stream->snd_nxt = rand_r(&next_seed) % TCP_MAX_SEQ;

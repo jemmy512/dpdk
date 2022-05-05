@@ -8,6 +8,7 @@
 #include "arp.h"
 #include "icmp.h"
 #include "kni.h"
+#include "ddos.h"
 
 #define BURST_SIZE 32
 
@@ -61,6 +62,15 @@ int pkt_handler(UN_USED void* arg) {
         unsigned nb_rx = rte_ring_mc_dequeue_burst(ring->in, (void**)mbufs, BURST_SIZE, NULL);
 
         for (unsigned i = 0; i < nb_rx; ++i) {
+            if (ddos_detect(mbufs[i])) {
+                for (unsigned j = 0; j < nb_rx; ++j) {
+                    rte_pktmbuf_free(mbufs[i]);
+                    goto out;
+                }
+            }
+        }
+
+        for (unsigned i = 0; i < nb_rx; ++i) {
             struct rte_ether_hdr* ehdr = rte_pktmbuf_mtod(mbufs[i], struct rte_ether_hdr*);
             struct rte_ipv4_hdr* iphdr =  rte_pktmbuf_mtod_offset(
                 mbufs[i], struct rte_ipv4_hdr*, sizeof(struct rte_ether_hdr)
@@ -89,6 +99,7 @@ int pkt_handler(UN_USED void* arg) {
             }
         }
 
+out:
         // rte_kni_handle_request(get_kni());
 
         // kni_out();
@@ -144,6 +155,6 @@ void launch_servers(void) {
     printf("lcores: %d, %d, %d\n", lcore_1, lcore_2, lcore_3);
 
     rte_eal_remote_launch(pkt_handler, NULL, lcore_1);
-    // rte_eal_remote_launch(main_tcp_server, NULL, lcore_2);
-    rte_eal_remote_launch(main_udp_server, NULL, lcore_2);
+    rte_eal_remote_launch(main_tcp_server, NULL, lcore_2);
+    // rte_eal_remote_launch(main_udp_server, NULL, lcore_2);
 }
