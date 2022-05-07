@@ -5,7 +5,8 @@
 * config nic
     * set eth0 bridge connection
     * set eth1 NAT
-    * Ubuntu desk 20.04.3.vmx
+    * change the default VM driver (e1000) to the vmxnet3
+        * Virtual Machines.localized/Ubuntu desk 20.04.3.vmwarevm/Ubuntu desk 20.04.3.vmx
         * ethernet0.virtualDev = "vmxnet3"
 
 # ubuntu

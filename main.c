@@ -25,7 +25,7 @@ int main(int argc, char* argv[]) {
 
     init_server_context();
     init_port();
-    // init_arp_timer();
+    init_arp_timer();
     // init_kni();
 
     launch_servers();
@@ -35,7 +35,7 @@ int main(int argc, char* argv[]) {
     struct rte_mbuf* tx_mbuf[BURST_SIZE];
 
     while (1) {
-        // arp_timer_tick();
+        arp_timer_tick();
 
         unsigned nb_rx = rte_eth_rx_burst(get_dpdk_port(), 0, rx_mbuf, BURST_SIZE);
         if (nb_rx > BURST_SIZE) {

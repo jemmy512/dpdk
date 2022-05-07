@@ -5,7 +5,7 @@
 * the server.
 *
 * To test start the program and issue a DNS request:
-*  dig @127.0.0.1 -p 9000 foo.bar.com */
+*  dig @192.168.4.137 -p 53 afar.robot.com A */
 
 #include <stdio.h>
 #include <stdlib.h>

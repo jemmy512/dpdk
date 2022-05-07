@@ -11,6 +11,10 @@
 * kni.c forwards ARP, ICMP packages to Linux Kernel and let kernel handle these protocols.
 * context.c allocats system memory pool and get local mac.
 
+ls pci device address:
+> ls /sys/bus/pci/devices/
+
+> ls /sys/bus/pci/
 # TCP
 ```
 0                   1                   2                   3

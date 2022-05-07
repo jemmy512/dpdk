@@ -8,10 +8,11 @@
 
 #include <assert.h>
 
+#include "config.h"
+
 static int dpdk_port = 0;
 
 static uint8_t local_mac[RTE_ETHER_ADDR_LEN];
-static uint32_t local_ip = MAKE_IPV4_ADDR(192, 168, 4, 94);
 
 static struct rte_mempool* mbuf_pool = NULL;
 static struct inout_ring* ring_ins = NULL;

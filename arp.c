@@ -7,9 +7,9 @@
 
 #include "context.h"
 
-#define TIMER_RESOLUTION_CYCLES 60000000000ULL // 10ms * 1000 = 10s * 6
+#include "config.h"
 
-#define ARP_REQ_IP MAKE_IPV4_ADDR(192, 168, 4, 234)
+#define TIMER_RESOLUTION_CYCLES 60000000000ULL // 10ms * 1000 = 10s * 6
 
 static struct arp_table* arp_table_ins = NULL;
 
@@ -24,7 +24,7 @@ static void print_ip_mac(const char* name, uint32_t ip, uint8_t* mac) {
     char buf[RTE_ETHER_ADDR_FMT_SIZE];
     rte_ether_format_addr(buf, RTE_ETHER_ADDR_FMT_SIZE, (struct rte_ether_addr*)mac);
 
-    printf("%s --> ip: %s, mac: %s\n", name, inet_ntoa(addr), buf);
+    printf("%s --> ip: %15s, mac: %s\n", name, inet_ntoa(addr), buf);
 }
 
 struct arp_table* get_arp_table(void) {
@@ -72,7 +72,7 @@ int arp_table_add(uint32_t ip, uint8_t* mac, uint8_t type) {
             ++table->count;
             pthread_spin_unlock(&table->lock);
 
-            // print_ip_mac("arp entry add", entry->ip, entry->mac);
+            print_ip_mac("arp entry add", entry->ip, entry->mac);
 
             return 1;
         }

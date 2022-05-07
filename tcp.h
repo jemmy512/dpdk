@@ -9,6 +9,8 @@
 
 #include "socket.h"
 
+#define UN_USED __attribute__((unused))
+
 #define TCP_OPTION_LENGTH 10
 
 #define TCP_MAX_SEQ  4294967295
@@ -31,54 +33,6 @@ typedef enum _TCP_STATUS {
     TCP_STATUS_LAST_ACK
 } TCP_STATUS;
 
-
-struct tcp_stream {
-    int fd;
-    uint32_t dip;
-    uint8_t localmac[RTE_ETHER_ADDR_LEN];
-    uint16_t dport;
-    uint8_t protocol;
-    int wait_len;
-    int wait_que[1024];
-    /* the above members must in the same order with localhost */
-
-    uint16_t sport;
-    uint32_t sip;
-
-    uint32_t snd_nxt;
-    uint32_t rcv_nxt;
-
-    TCP_STATUS status;
-#if 0
-    union {
-
-        struct {
-            struct tcp_stream* syn_set; //
-            struct tcp_stream* accept_set; //
-        };
-
-        struct {
-            struct rte_ring* sndbuf;
-            struct rte_ring* rcvbuf;
-        };
-    };
-#else
-    struct rte_ring* sndbuf;
-    struct rte_ring* rcvbuf;
-#endif
-    struct tcp_stream* prev;
-    struct tcp_stream* next;
-
-    pthread_cond_t cond;
-    pthread_mutex_t mutex;
-};
-
-struct tcp_table {
-    int count;
-    //struct tcp_stream* listener_set;
-    struct tcp_stream* tcb_set;
-};
-
 struct tcp_fragment {
     uint16_t sport;
     uint16_t dport;
@@ -100,31 +54,23 @@ struct tcp_fragment {
 
 int tcp_pkt_handler(struct rte_mbuf* tcpmbuf);
 
-struct tcp_stream* tcp_stream_search(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport);
-struct tcp_stream* tcp_stream_create(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport);
+struct sock* tcp_sock_create(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport);
 
-int tcp_enqueue_rcvbuf(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr, int tcplen);
+int tcp_enqueue_rcvbuf(struct sock* sk, struct rte_tcp_hdr* tcphdr, int tcplen);
 
-int tcp_handle_listen(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr, struct rte_ipv4_hdr* iphdr);
-int tcp_handle_syn_rcvd(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr);
-int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr, int tcplen);
-int tcp_handle_close_wait(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr);
-int tcp_handle_last_ack(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr);
+int tcp_handle_listen(struct sock* sk, struct rte_tcp_hdr* tcphdr, struct rte_ipv4_hdr* iphdr);
+int tcp_handle_syn_rcvd(struct sock* sk, struct rte_tcp_hdr* tcphdr);
+int tcp_handle_established(struct sock* sk, struct rte_tcp_hdr* tcphdr, int tcplen);
+int tcp_handle_close_wait(struct sock* sk, struct rte_tcp_hdr* tcphdr);
+int tcp_handle_last_ack(struct sock* sk, struct rte_tcp_hdr* tcphdr);
 
-int tcp_send_ack(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr);
+int tcp_send_ack(struct sock* sk, struct rte_tcp_hdr* tcphdr);
 
 int main_tcp_server(UN_USED void* arg);
 int tcp_server_out(void);
-
-struct tcp_stream* get_accept_stream(uint16_t dport);
 
 int encode_tcp_pkt(uint8_t *msg, uint32_t sip, uint32_t dip,
 	uint8_t *smac, uint8_t *dmac, struct tcp_fragment *fragment);
 
 struct rte_mbuf* make_tcp_pkt(uint32_t sip, uint32_t dip,
 	uint8_t *smac, uint8_t *dmac, struct tcp_fragment *fragment);
-
-
-struct tcp_table* get_tcp_table(void);
-void tcp_table_rm(struct tcp_stream* stream);
-void tcp_table_add(struct tcp_stream* stream);

@@ -13,15 +13,15 @@
 #define Echo_Port 8888
 
 enum host_enum {
-    Host_DNS = 0,
-    // Host_Echo,
+    // Host_DNS = 0,
+    Host_Echo,
     Host_Size
 };
 
 static int listen_fds[Host_Size];
 
-static int init_dns_host(void);
-static int init_echo_host(void);
+static int init_dns_server(void);
+static int init_udp_echo_server(void);
 
 int encode_udp_pkt(uint8_t* msg, uint32_t sip, uint32_t dip,
     uint16_t sport, uint16_t dport, uint8_t* src_mac, uint8_t* dst_mac,
@@ -90,10 +90,10 @@ int udp_pkt_handler(struct rte_mbuf* udpmbuf) {
     );
     struct rte_udp_hdr* udphdr = (struct rte_udp_hdr*)(iphdr + 1);
 
-    struct localhost* host = get_hostinfo_by_ip_port(iphdr->dst_addr, udphdr->dst_port, iphdr->next_proto_id);
-    if (host == NULL) {
+    struct sock* sk = get_udp_sock(iphdr->dst_addr, udphdr->dst_port, iphdr->next_proto_id);
+    if (sk == NULL) {
         rte_pktmbuf_free(udpmbuf);
-        // printf("not found host\n");
+        // printf("not found sk\n");
         return -3;
     }
 
@@ -120,11 +120,11 @@ int udp_pkt_handler(struct rte_mbuf* udpmbuf) {
     }
     rte_memcpy(ol->data, (unsigned char*)(udphdr+1), ol->data_len);
 
-    rte_ring_mp_enqueue(host->rcvbuf, ol);
+    rte_ring_mp_enqueue(sk->rcvbuf, ol);
 
-    pthread_mutex_lock(&host->mutex);
-    pthread_cond_signal(&host->cond);
-    pthread_mutex_unlock(&host->mutex);
+    pthread_mutex_lock(&sk->mutex);
+    pthread_cond_signal(&sk->cond);
+    pthread_mutex_unlock(&sk->mutex);
 
     rte_pktmbuf_free(udpmbuf);
 
@@ -134,8 +134,8 @@ int udp_pkt_handler(struct rte_mbuf* udpmbuf) {
 int main_udp_server(UN_USED void* arg) {
     printf("main_udp_server starting...\n");
 
-    listen_fds[Host_DNS] = init_dns_host();
-    // listen_fds[Host_Echo] = init_echo_host();
+    // listen_fds[Host_DNS] = init_dns_server();
+    listen_fds[Host_Echo] = init_udp_echo_server();
 
     struct sockaddr_in clientaddr;
     memset(&clientaddr, 0, sizeof(struct sockaddr_in));
@@ -145,19 +145,20 @@ int main_udp_server(UN_USED void* arg) {
 
     while (1) {
         for (int i = 0; i < Host_Size; ++i) {
+            printf("********** udp\n");
             int buf_len = net_recvfrom(listen_fds[i], buf, UDP_BUF_LEN, 0, (struct sockaddr*)&clientaddr, &addrlen);
             if (buf_len <= 0) {
                 continue;
             }
 
             switch (i) {
-                case Host_DNS: {
-                    buf_len = dns_pkt_handler(buf, buf_len);
-                    if (buf_len < 0) {
-                        printf("****** dns failed\n");
-                    }
-                    break;
-                }
+                // case Host_DNS: {
+                //     buf_len = dns_pkt_handler(buf, buf_len);
+                //     if (buf_len < 0) {
+                //         printf("****** dns failed\n");
+                //     }
+                //     break;
+                // }
                 default: {
                     printf("****** udp echo: %s\n", buf);
                     break;
@@ -178,9 +179,12 @@ int main_udp_server(UN_USED void* arg) {
 }
 
 int udp_server_out(void) {
-    for (struct localhost* host = host_table; host != NULL; host = host->next) {
+    for (struct sock* sk = get_sock_table(); sk != NULL; sk = sk->next) {
+        if (sk->protocol != IPPROTO_UDP)
+            continue;
+
         struct offload* ol;
-        int nb_snd = rte_ring_mc_dequeue(host->sndbuf, (void**)&ol);
+        int nb_snd = rte_ring_mc_dequeue(sk->sndbuf, (void**)&ol);
         if (nb_snd < 0)
             continue;
 
@@ -197,11 +201,11 @@ int udp_server_out(void) {
             struct inout_ring* ring = get_server_ring();
             rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
 
-            rte_ring_mp_enqueue(host->sndbuf, ol);
+            rte_ring_mp_enqueue(sk->sndbuf, ol);
         } else {
             struct rte_mbuf* udpbuf = make_udp_mbuf(
                 ol->sip, ol->dip, ol->sport, ol->dport,
-                host->localmac, dst_mac, ol->data, ol->data_len
+                sk->smac, dst_mac, ol->data, ol->data_len
             );
 
             // printf(", data: %s", ol->data);
@@ -214,7 +218,7 @@ int udp_server_out(void) {
     return 0;
 }
 
-static int init_dns_host(void) {
+static int init_dns_server(void) {
     int fd = net_socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
         printf("dns sockfd failed\n");
@@ -230,12 +234,12 @@ static int init_dns_host(void) {
 
     net_bind(fd, (struct sockaddr*)&localaddr, sizeof(localaddr));
 
-    printf("dns host started...\n");
+    printf("dns server started...\n");
 
     return fd;
 }
 
-static int init_echo_host(void) {
+static int init_udp_echo_server(void) {
     int fd = net_socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
         printf("echo sockfd failed\n");
@@ -251,7 +255,7 @@ static int init_echo_host(void) {
 
     net_bind(fd, (struct sockaddr*)&localaddr, sizeof(localaddr));
 
-    printf("echo host stared...\n");
+    printf("echo server stared...\n");
 
     return fd;
 }

@@ -18,30 +18,6 @@
 
 #define Server_Port 9999
 
-static struct tcp_table* tcp_table_ins = NULL;
-
-struct tcp_table* get_tcp_table(void) {
-    if (tcp_table_ins == NULL) {
-        tcp_table_ins = rte_malloc("tcp_table", sizeof(struct tcp_table), 0);
-        memset(tcp_table_ins, 0, sizeof(struct tcp_table));
-    }
-    return tcp_table_ins;
-}
-
-void tcp_table_add(struct tcp_stream* stream) {
-    struct tcp_table* table = get_tcp_table();
-    ++table->count;
-    list_add(stream, table->tcb_set);
-}
-
-void tcp_table_rm(struct tcp_stream* stream) {
-    struct tcp_table* table = get_tcp_table();
-    --table->count;
-    list_rm(stream, table->tcb_set);
-
-    debug_ip_port("tcp_table_rm", stream->sip, stream->dip, stream->sport, stream->dport);
-}
-
 int tcp_pkt_handler(struct rte_mbuf* tcpmbuf) {
     struct rte_ipv4_hdr* iphdr =  rte_pktmbuf_mtod_offset(
         tcpmbuf, struct rte_ipv4_hdr* , sizeof(struct rte_ether_hdr)
@@ -57,23 +33,26 @@ int tcp_pkt_handler(struct rte_mbuf* tcpmbuf) {
         return -1;
     }
 
-    struct tcp_stream* stream = tcp_stream_search(
+    struct sock* sk = get_tcp_sock(
         iphdr->src_addr, iphdr->dst_addr, tcphdr->src_port, tcphdr->dst_port
     );
-    if (stream == NULL) {
+    if (sk == NULL) {
+        sk = get_listen_sock(iphdr->dst_addr);
+    }
+    if (sk == NULL) {
         return -2;
     }
 
-    switch (stream->status) {
+    switch (sk->status) {
         case TCP_STATUS_CLOSED:
             break;
 
         case TCP_STATUS_LISTEN:
-            tcp_handle_listen(stream, tcphdr, iphdr);
+            tcp_handle_listen(sk, tcphdr, iphdr);
             break;
 
         case TCP_STATUS_SYN_RCVD:
-            tcp_handle_syn_rcvd(stream, tcphdr);
+            tcp_handle_syn_rcvd(sk, tcphdr);
             break;
 
         case TCP_STATUS_SYN_SENT:
@@ -81,7 +60,7 @@ int tcp_pkt_handler(struct rte_mbuf* tcpmbuf) {
 
         case TCP_STATUS_ESTABLISHED: {
             int tcplen = ntohs(iphdr->total_length) - sizeof(struct rte_ipv4_hdr);
-            tcp_handle_established(stream, tcphdr, tcplen);
+            tcp_handle_established(sk, tcphdr, tcplen);
             break;
         }
         case TCP_STATUS_FIN_WAIT_1:
@@ -97,11 +76,11 @@ int tcp_pkt_handler(struct rte_mbuf* tcpmbuf) {
             break;
 
         case TCP_STATUS_CLOSE_WAIT:
-            tcp_handle_close_wait(stream, tcphdr);
+            tcp_handle_close_wait(sk, tcphdr);
             break;
 
         case TCP_STATUS_LAST_ACK:
-            tcp_handle_last_ack(stream, tcphdr);
+            tcp_handle_last_ack(sk, tcphdr);
             break;
     }
 
@@ -110,39 +89,20 @@ int tcp_pkt_handler(struct rte_mbuf* tcpmbuf) {
     return 0;
 }
 
-struct tcp_stream* tcp_stream_search(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport) {
-    struct tcp_stream* iter;
-    struct tcp_table* table = get_tcp_table();
-
-    for (iter = table->tcb_set; iter != NULL; iter = iter->next) { // established
-        if (iter->sip == sip && iter->dip == dip && iter->sport == sport && iter->dport == dport) {
-            return iter;
-        }
-    }
-
-    for (iter = table->tcb_set; iter != NULL; iter = iter->next) {
-        if (iter->dport == dport && iter->status == TCP_STATUS_LISTEN) { // listen
-            return iter;
-        }
-    }
-
-    return NULL;
-}
-
-struct tcp_stream* tcp_stream_create(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport) {
-    struct tcp_stream* stream = rte_malloc("tcp_stream", sizeof(struct tcp_stream), 0);
-    if (stream == NULL)
+struct sock* tcp_sock_create(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport) {
+    struct sock* sk = rte_malloc("tcp sock", sizeof(struct sock), 0);
+    if (sk == NULL)
         return NULL;
-    memset(stream, 0, sizeof(struct tcp_stream));
+    memset(sk, 0, sizeof(struct sock));
 
-    stream->sip = sip;
-    stream->dip = dip;
-    stream->sport = sport;
-    stream->dport = dport;
-    stream->protocol = IPPROTO_TCP;
-    stream->fd = -1; // unused
+    sk->sip = sip;
+    sk->dip = dip;
+    sk->sport = sport;
+    sk->dport = dport;
+    sk->protocol = IPPROTO_TCP;
+    sk->fd = -1; // unused
 
-    stream->status = TCP_STATUS_LISTEN;
+    sk->status = TCP_STATUS_CLOSED;
 
     struct in_addr saddr;
     saddr.s_addr = sip;
@@ -151,33 +111,39 @@ struct tcp_stream* tcp_stream_create(uint32_t sip, uint32_t dip, uint16_t sport,
 
     char tx_name[32] = {0};
     snprintf(tx_name, 32, "tcpsnd%s:%d", src_ip, src_port);
-    stream->sndbuf = rte_ring_create(tx_name, RING_SIZE, rte_socket_id(), 0);
+    sk->sndbuf = rte_ring_create(tx_name, RING_SIZE, rte_socket_id(), 0);
     printf("%s\n", tx_name);
 
     char rx_name[32] = {0};
     snprintf(rx_name, 32, "tcprcv%s:%d", src_ip, src_port);
-    stream->rcvbuf = rte_ring_create(rx_name, RING_SIZE, rte_socket_id(), 0);
+    sk->rcvbuf = rte_ring_create(rx_name, RING_SIZE, rte_socket_id(), 0);
     printf("%s\n", rx_name);
 
     uint32_t next_seed = time(NULL);
-    stream->snd_nxt = rand_r(&next_seed) % TCP_MAX_SEQ;
-    rte_memcpy(stream->localmac, get_local_mac(), RTE_ETHER_ADDR_LEN);
+    sk->snd_nxt = rand_r(&next_seed) % TCP_MAX_SEQ;
+    rte_memcpy(sk->smac, get_local_mac(), RTE_ETHER_ADDR_LEN);
 
     pthread_cond_t init_cond = PTHREAD_COND_INITIALIZER;
-    rte_memcpy(&stream->cond, &init_cond, sizeof(pthread_cond_t));
+    rte_memcpy(&sk->cond, &init_cond, sizeof(pthread_cond_t));
 
     pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
-    rte_memcpy(&stream->mutex, &init_mutex, sizeof(pthread_mutex_t));
+    rte_memcpy(&sk->mutex, &init_mutex, sizeof(pthread_mutex_t));
 
-    return stream;
+    return sk;
 }
 
-int tcp_handle_listen(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr, struct rte_ipv4_hdr* iphdr) {
-    if (tcphdr->tcp_flags & RTE_TCP_SYN_FLAG && stream->status == TCP_STATUS_LISTEN) {
-        struct tcp_stream* syn_stream = tcp_stream_create(
+int tcp_handle_listen(struct sock* sk, struct rte_tcp_hdr* tcphdr, struct rte_ipv4_hdr* iphdr) {
+    if ((tcphdr->tcp_flags & RTE_TCP_SYN_FLAG) == 0)
+        return -1;
+
+    if (sk->status != TCP_STATUS_LISTEN)
+        return -1;
+
+    if (tcphdr->tcp_flags & RTE_TCP_SYN_FLAG && sk->status == TCP_STATUS_LISTEN) {
+        struct sock* syn_sk = tcp_sock_create(
             iphdr->src_addr, iphdr->dst_addr, tcphdr->src_port, tcphdr->dst_port
         );
-        tcp_table_add(syn_stream);
+        sock_add(syn_sk);
 
         struct tcp_fragment* frag = rte_malloc("tcp_fragment", sizeof(struct tcp_fragment), 0);
         if (frag == NULL)
@@ -187,9 +153,9 @@ int tcp_handle_listen(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr, str
         frag->sport = tcphdr->dst_port;
         frag->dport = tcphdr->src_port;
 
-        frag->seqnum = syn_stream->snd_nxt;
+        frag->seqnum = syn_sk->snd_nxt;
         frag->acknum = ntohl(tcphdr->sent_seq) + 1;
-        syn_stream->rcv_nxt = frag->acknum;
+        syn_sk->rcv_nxt = frag->acknum;
 
         frag->tcp_flags = (RTE_TCP_SYN_FLAG | RTE_TCP_ACK_FLAG);
         frag->windows = TCP_INITIAL_WINDOW;
@@ -198,29 +164,27 @@ int tcp_handle_listen(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr, str
         frag->data = NULL;
         frag->data_len = 0;
 
-        rte_ring_mp_enqueue(syn_stream->sndbuf, frag);
+        rte_ring_mp_enqueue(syn_sk->sndbuf, frag);
 
-        syn_stream->status = TCP_STATUS_SYN_RCVD;
-
-        printf("tcp_handle_listen done\n");
+        syn_sk->status = TCP_STATUS_SYN_RCVD;
     }
 
     return 0;
 }
 
-int tcp_handle_syn_rcvd(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr) {
-    if (tcphdr->tcp_flags & RTE_TCP_ACK_FLAG && stream->status == TCP_STATUS_SYN_RCVD) {
+int tcp_handle_syn_rcvd(struct sock* sk, struct rte_tcp_hdr* tcphdr) {
+    if (tcphdr->tcp_flags & RTE_TCP_ACK_FLAG && sk->status == TCP_STATUS_SYN_RCVD) {
         uint32_t acknum = ntohl(tcphdr->recv_ack);
-        if (acknum == stream->snd_nxt + 1) {
+        if (acknum == sk->snd_nxt + 1) {
 
         }
 
-        stream->status = TCP_STATUS_ESTABLISHED;
+        sk->status = TCP_STATUS_ESTABLISHED;
 
         // accept
-        struct tcp_stream* listener = tcp_stream_search(0, 0, 0, stream->dport);
+        struct sock* listener = get_listen_sock(sk->dport);
         if (listener == NULL) {
-            rte_exit(EXIT_FAILURE, "tcp_stream_search failed\n");
+            rte_exit(EXIT_FAILURE, "get_listen_sock failed\n");
         }
 
         pthread_mutex_lock(&listener->mutex);
@@ -233,7 +197,7 @@ int tcp_handle_syn_rcvd(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr) {
     return 0;
 }
 
-int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr, int tcplen) {
+int tcp_handle_established(struct sock* sk, struct rte_tcp_hdr* tcphdr, int tcplen) {
     if (tcphdr->tcp_flags & RTE_TCP_SYN_FLAG) {
 
     }
@@ -265,10 +229,10 @@ int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
 
             printf("tcp : %s\n", rfragment->data);
         }
-        rte_ring_mp_enqueue(stream->rcvbuf, rfragment);
+        rte_ring_mp_enqueue(sk->rcvbuf, rfragment);
 #else
 
-        tcp_enqueue_rcvbuf(stream, tcphdr, tcplen);
+        tcp_enqueue_rcvbuf(sk, tcphdr, tcplen);
 
 #endif
 
@@ -283,16 +247,16 @@ int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
 
         // remote
 
-        printf("tcp_handle_established: %d, %d\n", stream->rcv_nxt, ntohs(tcphdr->sent_seq));
+        printf("tcp_handle_established: %d, %d\n", sk->rcv_nxt, ntohs(tcphdr->sent_seq));
 
 
-        stream->rcv_nxt = stream->rcv_nxt + data_len;
+        sk->rcv_nxt = sk->rcv_nxt + data_len;
         // local
-        stream->snd_nxt = ntohl(tcphdr->recv_ack);
+        sk->snd_nxt = ntohl(tcphdr->recv_ack);
         //frag->
 
-        frag->acknum = stream->rcv_nxt;
-        frag->seqnum = stream->snd_nxt;
+        frag->acknum = sk->rcv_nxt;
+        frag->seqnum = sk->snd_nxt;
 
         frag->tcp_flags = RTE_TCP_ACK_FLAG;
         frag->windows = TCP_INITIAL_WINDOW;
@@ -300,17 +264,17 @@ int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
         frag->data = NULL;
         frag->length = 0;
 
-        rte_ring_mp_enqueue(stream->sndbuf, frag);
+        rte_ring_mp_enqueue(sk->sndbuf, frag);
 
 #else
 
         uint8_t hdrlen = tcphdr->data_off >> 4;
         int data_len = tcplen - hdrlen * 4;
 
-        stream->rcv_nxt = stream->rcv_nxt + data_len;
-        stream->snd_nxt = ntohl(tcphdr->recv_ack);
+        sk->rcv_nxt = sk->rcv_nxt + data_len;
+        sk->snd_nxt = ntohl(tcphdr->recv_ack);
 
-        tcp_send_ack(stream, tcphdr);
+        tcp_send_ack(sk, tcphdr);
 
 #endif
         // echo pkt
@@ -322,8 +286,8 @@ int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
         echofrag->dport = tcphdr->src_port;
         echofrag->sport = tcphdr->dst_port;
 
-        echofrag->acknum = stream->rcv_nxt;
-        echofrag->seqnum = stream->snd_nxt;
+        echofrag->acknum = sk->rcv_nxt;
+        echofrag->seqnum = sk->snd_nxt;
 
         echofrag->tcp_flags = RTE_TCP_ACK_FLAG | RTE_TCP_PSH_FLAG;
         echofrag->windows = TCP_INITIAL_WINDOW;
@@ -341,7 +305,7 @@ int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
         rte_memcpy(echofrag->data, data, data_len);
         echofrag->length = data_len;
 
-        rte_ring_mp_enqueue(stream->sndbuf, echofrag);
+        rte_ring_mp_enqueue(sk->sndbuf, echofrag);
 #endif
     }
 
@@ -351,7 +315,7 @@ int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
 
     if (tcphdr->tcp_flags & RTE_TCP_FIN_FLAG) {
 
-        stream->status = TCP_STATUS_CLOSE_WAIT;
+        sk->status = TCP_STATUS_CLOSE_WAIT;
 #if 0
 
         struct tcp_fragment* rfragment = rte_malloc("tcp_fragment", sizeof(struct tcp_fragment), 0);
@@ -367,50 +331,50 @@ int tcp_handle_established(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr
         rfragment->length = 0;
         rfragment->data = NULL;
 
-        rte_ring_mp_enqueue(stream->rcvbuf, rfragment);
+        rte_ring_mp_enqueue(sk->rcvbuf, rfragment);
 
 #else
-        tcp_enqueue_rcvbuf(stream, tcphdr, tcphdr->data_off >> 4);
+        tcp_enqueue_rcvbuf(sk, tcphdr, tcphdr->data_off >> 4);
 
 #endif
         // send ack ptk
-        stream->rcv_nxt = stream->rcv_nxt + 1;
-        stream->snd_nxt = ntohl(tcphdr->recv_ack);
+        sk->rcv_nxt = sk->rcv_nxt + 1;
+        sk->snd_nxt = ntohl(tcphdr->recv_ack);
 
-        tcp_send_ack(stream, tcphdr);
+        tcp_send_ack(sk, tcphdr);
     }
 
     return 0;
 }
 
-int tcp_handle_close_wait(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr) {
-    if (tcphdr->tcp_flags & RTE_TCP_FIN_FLAG && stream->status == TCP_STATUS_CLOSE_WAIT) {
+int tcp_handle_close_wait(struct sock* sk, struct rte_tcp_hdr* tcphdr) {
+    if (tcphdr->tcp_flags & RTE_TCP_FIN_FLAG && sk->status == TCP_STATUS_CLOSE_WAIT) {
 
     }
 
     return 0;
 }
 
-int tcp_handle_last_ack(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr) {
-    if (tcphdr->tcp_flags & RTE_TCP_ACK_FLAG && stream->status == TCP_STATUS_LAST_ACK) {
-        stream->status = TCP_STATUS_CLOSED;
+int tcp_handle_last_ack(struct sock* sk, struct rte_tcp_hdr* tcphdr) {
+    if (tcphdr->tcp_flags & RTE_TCP_ACK_FLAG && sk->status == TCP_STATUS_LAST_ACK) {
+        sk->status = TCP_STATUS_CLOSED;
 
-        tcp_table_rm(stream);
+        sock_rm(sk);
 
-        if (stream->sndbuf) {
-            rte_ring_free(stream->sndbuf);
+        if (sk->sndbuf) {
+            rte_ring_free(sk->sndbuf);
         }
-        if (stream->rcvbuf) {
-            rte_ring_free(stream->rcvbuf);
+        if (sk->rcvbuf) {
+            rte_ring_free(sk->rcvbuf);
         }
 
-        rte_free(stream);
+        rte_free(sk);
     }
 
     return 0;
 }
 
-int tcp_send_ack(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr) {
+int tcp_send_ack(struct sock* sk, struct rte_tcp_hdr* tcphdr) {
     struct tcp_fragment* frag = rte_malloc("tcp_fragment", sizeof(struct tcp_fragment), 0);
     if (frag == NULL)
         return -1;
@@ -420,10 +384,10 @@ int tcp_send_ack(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr) {
     frag->sport = tcphdr->dst_port;
 
     // remote
-    printf("tcp_send_ack: %d, %d\n", stream->rcv_nxt, ntohs(tcphdr->sent_seq));
+    printf("tcp_send_ack: %d, %d\n", sk->rcv_nxt, ntohs(tcphdr->sent_seq));
 
-    frag->acknum = stream->rcv_nxt;
-    frag->seqnum = stream->snd_nxt;
+    frag->acknum = sk->rcv_nxt;
+    frag->seqnum = sk->snd_nxt;
 
     frag->tcp_flags = RTE_TCP_ACK_FLAG;
     frag->windows = TCP_INITIAL_WINDOW;
@@ -431,12 +395,12 @@ int tcp_send_ack(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr) {
     frag->data = NULL;
     frag->data_len = 0;
 
-    rte_ring_mp_enqueue(stream->sndbuf, frag);
+    rte_ring_mp_enqueue(sk->sndbuf, frag);
 
     return 0;
 }
 
-int tcp_enqueue_rcvbuf(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr, int tcplen) {
+int tcp_enqueue_rcvbuf(struct sock* sk, struct rte_tcp_hdr* tcphdr, int tcplen) {
     struct tcp_fragment* frag = rte_malloc("tcp_fragment", sizeof(struct tcp_fragment), 0);
     if (frag == NULL)
         return -1;
@@ -461,14 +425,14 @@ int tcp_enqueue_rcvbuf(struct tcp_stream* stream, struct rte_tcp_hdr* tcphdr, in
         frag->data_len = 0;
         frag->data = NULL;
     }
-    rte_ring_mp_enqueue(stream->rcvbuf, frag);
+    rte_ring_mp_enqueue(sk->rcvbuf, frag);
 
     // notify net_recv
-    pthread_mutex_lock(&stream->mutex);
-    pthread_cond_signal(&stream->cond);
-    pthread_mutex_unlock(&stream->mutex);
+    pthread_mutex_lock(&sk->mutex);
+    pthread_cond_signal(&sk->cond);
+    pthread_mutex_unlock(&sk->mutex);
 
-    epoll_callback(get_epoll(), stream->fd, EPOLLIN);
+    epoll_callback(get_epoll(), sk->fd, EPOLLIN);
 
     return 0;
 }
@@ -530,46 +494,33 @@ int main_tcp_server(UN_USED void* arg) {
     net_close(listenfd);
 }
 
-struct tcp_stream* get_accept_stream(uint16_t dport) {
-    struct tcp_stream* acpt;
-    struct tcp_table* table = get_tcp_table();
-
-    for (acpt = table->tcb_set; acpt != NULL; acpt = acpt->next) {
-        if (dport == acpt->dport && acpt->fd == -1) {
-            return acpt;
-        }
-    }
-
-    return NULL;
-}
-
 int tcp_server_out(void) {
-    struct tcp_table* table = get_tcp_table();
+    struct sock* table = get_sock_table();
 
-    struct tcp_stream* stream;
-    for (stream = table->tcb_set; stream != NULL; stream = stream->next) {
-        if (stream->sndbuf == NULL)
+    struct sock* sk;
+    for (sk = table; sk != NULL; sk = sk->next) {
+        if (sk->sndbuf == NULL || sk->protocol != IPPROTO_TCP)
             continue; // listener
 
         struct tcp_fragment* frag = NULL;
-        int nb_snd = rte_ring_mc_dequeue(stream->sndbuf, (void**)&frag);
+        int nb_snd = rte_ring_mc_dequeue(sk->sndbuf, (void**)&frag);
         if (nb_snd < 0)
             continue;
 
-        printf("tcp_server_out... count: %d\n", table->count);
+        // printf("tcp_server_out... count: %d\n", table->count);
 
-        uint8_t* dmac = get_arp_mac(stream->sip);
+        uint8_t* dmac = get_arp_mac(sk->sip);
         if (dmac == NULL) {
             struct rte_mbuf* arpbuf = make_arp_mbuf(
-                RTE_ARP_OP_REQUEST, gDefaultArpMac, stream->dip, stream->sip
+                RTE_ARP_OP_REQUEST, gDefaultArpMac, sk->dip, sk->sip
             );
 
             struct inout_ring* ring = get_server_ring();
             rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
-            rte_ring_mp_enqueue(stream->sndbuf, frag);
+            rte_ring_mp_enqueue(sk->sndbuf, frag);
         } else {
             struct rte_mbuf* tcpbuf = make_tcp_pkt(
-                stream->dip, stream->sip, stream->localmac, dmac, frag
+                sk->dip, sk->sip, sk->smac, dmac, frag
             );
             struct inout_ring* ring = get_server_ring();
             rte_ring_mp_enqueue_burst(ring->out, (void**)&tcpbuf, 1, NULL);

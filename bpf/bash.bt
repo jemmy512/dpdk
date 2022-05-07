@@ -1,0 +1,17 @@
+
+BEGIN
+{
+	printf("Tracing Bash Commands ...\n");
+	printf("%-9s %-6s %s\n", "TIME", "PID", "COMMAND");
+}
+
+uretprobe:/bin/bash:readline
+{
+	time("%H:%M:%S ");
+	printf("%-6d %s\n", pid, str(retval));
+}
+
+tracepoint:syscalls:sys_enter_execve
+{
+	printf("%s -->%d, %s\n", comm, pid, str(args->filename));
+}

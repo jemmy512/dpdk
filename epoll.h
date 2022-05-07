@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <pthread.h>
 
+#include "list.h"
 #include "rb_tree.h"
 
 enum EPOLL_EVENTS {
@@ -43,6 +44,7 @@ struct epoll_event {
 struct epitem {
     RB_ENTRY(epitem) rb_node;
     LIST_ENTRY(epitem) rdlink;
+    wait_queue_entry_t wait_entry;
     int in_rdlist;
 
 	int wait_id;
