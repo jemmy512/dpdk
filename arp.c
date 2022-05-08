@@ -72,7 +72,7 @@ int arp_table_add(uint32_t ip, uint8_t* mac, uint8_t type) {
             ++table->count;
             pthread_spin_unlock(&table->lock);
 
-            print_ip_mac("arp entry add", entry->ip, entry->mac);
+            // print_ip_mac("arp entry add", entry->ip, entry->mac);
 
             return 1;
         }
@@ -208,9 +208,9 @@ void arp_request_timer_cb(UN_USED struct rte_timer* timer, UN_USED void* arg) {
     for (int i = 233; i <= 235; ++i) {
         uint32_t dstip = (arp_req_ip & 0x00FFFFFF) | (0xFF000000 & (i << 24));
 
-        struct in_addr addr;
-        addr.s_addr = dstip;
-        printf("arp ping ---> src: %s \n", inet_ntoa(addr));
+        // struct in_addr addr;
+        // addr.s_addr = dstip;
+        // printf("arp ping ---> src: %s \n", inet_ntoa(addr));
 
         struct rte_mbuf* arpbuf = NULL;
         uint8_t* dst_mac = get_arp_mac(dstip);

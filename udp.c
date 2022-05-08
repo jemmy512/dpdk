@@ -2,6 +2,7 @@
 #include <rte_ether.h>
 #include <rte_udp.h>
 #include <rte_ip.h>
+#include <rte_hash.h>
 
 #include "udp.h"
 #include "arp.h"
@@ -90,14 +91,14 @@ int udp_pkt_handler(struct rte_mbuf* udpmbuf) {
     );
     struct rte_udp_hdr* udphdr = (struct rte_udp_hdr*)(iphdr + 1);
 
-    struct sock* sk = get_udp_sock(iphdr->dst_addr, udphdr->dst_port, iphdr->next_proto_id);
+    struct sock* sk = get_udp_sock(iphdr->dst_addr, udphdr->dst_port);
     if (sk == NULL) {
         rte_pktmbuf_free(udpmbuf);
         // printf("not found sk\n");
         return -3;
     }
 
-    debug_ip_port("udp_pkt_handler", iphdr->src_addr, iphdr->dst_addr, udphdr->src_port, udphdr->dst_port);
+    // debug_ip_port("udp_pkt_handler", iphdr->src_addr, iphdr->dst_addr, udphdr->src_port, udphdr->dst_port, 0);
 
     struct offload* ol = rte_malloc("offload", sizeof(struct offload), 0);
     if (ol == NULL) {
@@ -179,7 +180,11 @@ int main_udp_server(UN_USED void* arg) {
 }
 
 int udp_server_out(void) {
-    for (struct sock* sk = get_sock_table(); sk != NULL; sk = sk->next) {
+    struct net_key* key = NULL;
+	struct sock* sk = NULL;
+	uint32_t next = 0;
+
+	while (rte_hash_iterate(get_sock_table(), (const void **)&key, (void**)&sk, &next) >= 0) {
         if (sk->protocol != IPPROTO_UDP)
             continue;
 

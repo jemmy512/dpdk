@@ -5,107 +5,127 @@
 #include <arpa/inet.h>
 #include <rte_malloc.h>
 
-#include "socket.h"
-#include "list.h"
 #include "tcp.h"
 #include "file.h"
+#include "list.h"
+#include "hash.h"
+#include "socket.h"
 #include "context.h"
 
-static struct sock* sock_table = NULL;
-static pthread_spinlock_t sock_table_lock = PTHREAD_PROCESS_SHARED;
+static struct rte_hash* sock_table = NULL;
 
-struct sock* get_sock_table(void) {
+void init_sock_table(void) {
+    sock_table = make_sock_table("sock hash table");
+}
+
+struct rte_hash* get_sock_table(void) {
     return sock_table;
 }
 
 void sock_add(struct sock* sk) {
-    pthread_spin_lock(&sock_table_lock);
-    list_add(sk, sock_table);
-    pthread_spin_unlock(&sock_table_lock);
+    // list_add(sk, sock_table);
+    struct sock_key key = {
+        .sip = sk->sip,
+        .dip = sk->dip,
+        .sport = sk->sport,
+        .dport = sk->dport,
+        .protocol = sk->protocol
+    };
+    printf("sock add, ");
+    print_key(&key);
+
+    hash_add(get_sock_table(), &key, sk);
 }
 
 void sock_rm(struct sock* sk) {
-    pthread_spin_lock(&sock_table_lock);
-    list_rm(sk, sock_table);
-    pthread_spin_unlock(&sock_table_lock);
+    // list_rm(sk, get_sock_table());
+    struct sock_key key = {
+        .sip = sk->sip,
+        .dip = sk->dip,
+        .sport = sk->sport,
+        .dport = sk->dport,
+        .protocol = sk->protocol
+    };
+    hash_rm(get_sock_table(), &key);
+}
+
+static struct sock* get_sock(rte_be32_t sip, rte_be32_t dip, rte_be16_t sport, rte_be16_t dport, uint8_t protocol) {
+    if (protocol == IPPROTO_UDP)
+        return NULL;
+
+    struct sock_key key = {
+        .sip = sip,
+        .dip = dip,
+        .sport = sport,
+        .dport = dport,
+        .protocol = protocol
+    };
+    printf("get sock, ");
+    print_key(&key);
+
+    return hash_find(get_sock_table(), &key);
 }
 
 struct sock* get_tcp_sock(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport) {
-    struct sock* sock = NULL;
+    return get_sock(sip, dip, sport, dport, IPPROTO_TCP);
 
-    pthread_spin_lock(&sock_table_lock);
-    for (struct sock* sk = sock_table; sk != NULL; sk = sk->next) {
-        if (sk->sip == sip && sk->dip == dip && sk->sport == sport && sk->dport == dport) {
-            sock = sk;
-            break;
-        }
-    }
-    pthread_spin_unlock(&sock_table_lock);
-
-    return sock;
+    // for (struct sock* sk = get_sock_table(); sk != NULL; sk = sk->next) {
+    //     if (sk->sip == sip && sk->dip == dip && sk->sport == sport && sk->dport == dport) {
+    //         sock = sk;
+    //         break;
+    //     }
+    // }
 }
 
-struct sock* get_udp_sock(uint32_t dip, uint16_t port, uint8_t proto) {
-    struct sock* sock = NULL;
+struct sock* get_udp_sock(uint32_t sip, uint16_t sport) {
+    return get_sock(sip, 0, sport, 0, IPPROTO_UDP);
 
-    pthread_spin_lock(&sock_table_lock);
-    for (struct sock* sk = sock_table; sk != NULL; sk = sk->next) {
-        if (dip == sk->sip && port == sk->sport && proto == sk->protocol) {
-            sock = sk;
-            break;
-        }
-    }
-    pthread_spin_unlock(&sock_table_lock);
-
-    return sock;
+    // for (struct sock* sk = get_sock_table(); sk != NULL; sk = sk->next) {
+    //     if (dip == sk->sip && port == sk->sport && proto == sk->protocol) {
+    //         sock = sk;
+    //         break;
+    //     }
+    // }
 }
 
-struct sock* get_sock_by_fd(int sockfd) {
-    struct sock* sock = NULL;
+struct sock* get_accept_sock(struct sock* listensk) {
+    struct sock* sk = NULL;
 
-    pthread_spin_lock(&sock_table_lock);
-    for (struct sock* sk = sock_table; sk != NULL; sk = sk->next) {
-        if (sockfd == sk->fd) {
-            sock = sk;
-            break;
-        }
+    // for (struct sock* sk = get_sock_table(); sk != NULL; sk = sk->next) {
+    //     if (port == sk->dport && sk->fd == -1) {
+    //         sock = sk;
+    //         break;
+    //     }
+    // }
+
+    if (!LIST_EMPTY(&listensk->accept_head)) {
+        sk = LIST_FIRST(&listensk->accept_head);
+        LIST_REMOVE(sk, accept_entry);
     }
-    pthread_spin_unlock(&sock_table_lock);
 
-    return sock;
+    return sk;
 }
 
-struct sock* get_accept_sock(uint16_t port) {
-    struct sock* sock = NULL;
-
-    pthread_spin_lock(&sock_table_lock);
-    for (struct sock* sk = get_sock_table(); sk != NULL; sk = sk->next) {
-        if (port == sk->dport && sk->fd == -1) {
-            sock = sk;
-            break;
-        }
-    }
-    pthread_spin_unlock(&sock_table_lock);
-
-    return sock;
+int add_accept_sock(struct sock* listensk, struct sock *sk) {
+    LIST_INSERT_HEAD(&listensk->accept_head, sk, accept_entry);
+    return 0;
 }
 
-struct sock* get_listen_sock(uint16_t port) {
-    struct sock* sock = NULL;
+struct sock* get_listen_sock(uint32_t sip, uint16_t sport) {
+    return get_sock(sip, 0, sport, 0, IPPROTO_TCP);
+    // struct sock* sock = NULL;
 
-    pthread_spin_lock(&sock_table_lock);
-    for (struct sock* sk = sock_table; sk != NULL; sk = sk->next) {
-        if (sk->sport == port && sk->status == TCP_STATUS_LISTEN) {
-            sock = sk;
-            break;
-        }
-    }
-    pthread_spin_unlock(&sock_table_lock);
+    // for (struct sock* sk = get_sock_table(); sk != NULL; sk = sk->next) {
+    //     if (sk->sport == port && sk->status == TCP_STATUS_LISTEN) {
+    //         sock = sk;
+    //         break;
+    //     }
+    // }
 
-    return sock;
+    // return sock;
 }
 
-int net_socket(UN_USED int domain, int type, UN_USED int protocol) {
+int net_socket(UN_USED int domain, int type, UN_USED uint8_t protocol) {
     struct sock* sk = NULL;
     int fd = get_fd();
     if (fd == -1)
@@ -155,8 +175,6 @@ int net_socket(UN_USED int domain, int type, UN_USED int protocol) {
     pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
     rte_memcpy(&sk->mutex, &init_mutex, sizeof(pthread_mutex_t));
 
-    sock_add(sk);
-
     return fd;
 
 put_fd:
@@ -170,20 +188,16 @@ int net_bind(int sockfd, const struct sockaddr* addr, UN_USED socklen_t addrlen)
     if (sk == NULL)
         return -1;
 
-    if (sk->protocol == IPPROTO_UDP) {
-        const struct sockaddr_in* laddr = (const struct sockaddr_in*)addr;
-        sk->sport = laddr->sin_port;
-        rte_memcpy(&sk->sip, &laddr->sin_addr.s_addr, sizeof(uint32_t));
-        rte_memcpy(sk->smac, get_local_mac(), RTE_ETHER_ADDR_LEN);
-    } else if (sk->protocol == IPPROTO_TCP) {
-        const struct sockaddr_in* laddr = (const struct sockaddr_in*)addr;
-        // TODO
-        sk->sport = laddr->sin_port;
-        rte_memcpy(&sk->dip, &laddr->sin_addr.s_addr, sizeof(uint32_t));
-        rte_memcpy(sk->smac, get_local_mac(), RTE_ETHER_ADDR_LEN);
+    const struct sockaddr_in* laddr = (const struct sockaddr_in*)addr;
+    sk->sport = laddr->sin_port;
+    rte_memcpy(&sk->sip, &laddr->sin_addr.s_addr, sizeof(uint32_t));
+    rte_memcpy(sk->smac, get_local_mac(), RTE_ETHER_ADDR_LEN);
 
+    if (sk->protocol == IPPROTO_TCP) {
         sk->status = TCP_STATUS_CLOSED;
     }
+
+    sock_add(sk);
 
     return 0;
 }
@@ -209,7 +223,7 @@ int net_accept(int sockfd, struct sockaddr* addr, UN_USED socklen_t* addrlen) {
         struct sock* acpt = NULL;
 
         pthread_mutex_lock(&sk->mutex);
-        while((acpt = get_accept_sock(sk->sport)) == NULL) {
+        while((acpt = get_accept_sock(sk)) == NULL) {
             pthread_cond_wait(&sk->cond, &sk->mutex);
         }
         pthread_mutex_unlock(&sk->mutex);
@@ -273,7 +287,7 @@ ssize_t net_send(int sockfd, const void* buf, size_t len, UN_USED int flags) {
 ssize_t net_recv(int sockfd, void* buf, size_t len, UN_USED int flags) {
     ssize_t length = 0;
 
-    struct sock* sk = get_sock_by_fd(sockfd);
+    struct sock* sk = find_fd(sockfd);
     if (sk == NULL)
         return -1;
 
@@ -437,11 +451,16 @@ int net_close(int fd) {
     return 0;
 }
 
-void debug_ip_port(const char* name, uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport) {
-    struct in_addr addr;
-    addr.s_addr = sip;
-    printf("%s ---> src: %s:%d", name, inet_ntoa(addr), ntohs(sport));
+void print_key(struct sock_key* sk) {
+    debug_ip_port("sk key", sk->sip, sk->dip, sk->sport, sk->dport, sk->protocol);
+}
 
-    addr.s_addr = dip;
-    printf(", dst: %s:%d \n", inet_ntoa(addr), ntohs(dport));
+void debug_ip_port(const char* name, uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport, uint8_t protocol) {
+    struct in_addr saddr;
+    saddr.s_addr = sip;
+    printf("%s --- src: %s:%d", name, inet_ntoa(saddr), ntohs(sport));
+
+    struct in_addr daddr;
+    daddr.s_addr = dip;
+    printf(", dst: %s:%d, protocol: %d\n", inet_ntoa(daddr), ntohs(dport), protocol);
 }

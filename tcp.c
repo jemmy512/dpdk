@@ -6,6 +6,7 @@
 #include <rte_ip.h>
 #include <rte_tcp.h>
 #include <rte_arp.h>
+#include <rte_hash.h>
 
 #include "list.h"
 #include "socket.h"
@@ -13,6 +14,8 @@
 #include "context.h"
 #include "file.h"
 #include "epoll.h"
+#include "config.h"
+
 
 #define BUFFER_SIZE	1024
 
@@ -37,7 +40,7 @@ int tcp_pkt_handler(struct rte_mbuf* tcpmbuf) {
         iphdr->src_addr, iphdr->dst_addr, tcphdr->src_port, tcphdr->dst_port
     );
     if (sk == NULL) {
-        sk = get_listen_sock(iphdr->dst_addr);
+        sk = get_listen_sock(iphdr->dst_addr, tcphdr->dst_port);
     }
     if (sk == NULL) {
         return -2;
@@ -109,15 +112,15 @@ struct sock* tcp_sock_create(uint32_t sip, uint32_t dip, uint16_t sport, uint16_
     char* src_ip = inet_ntoa(saddr);
     uint16_t src_port = ntohs(sport);
 
-    char tx_name[32] = {0};
-    snprintf(tx_name, 32, "tcpsnd%s:%d", src_ip, src_port);
-    sk->sndbuf = rte_ring_create(tx_name, RING_SIZE, rte_socket_id(), 0);
-    printf("%s\n", tx_name);
+    char buf_name[32] = {0};
 
-    char rx_name[32] = {0};
-    snprintf(rx_name, 32, "tcprcv%s:%d", src_ip, src_port);
-    sk->rcvbuf = rte_ring_create(rx_name, RING_SIZE, rte_socket_id(), 0);
-    printf("%s\n", rx_name);
+    snprintf(buf_name, 32, "tcpsnd%s:%d", src_ip, src_port);
+    sk->sndbuf = rte_ring_create(buf_name, RING_SIZE, rte_socket_id(), 0);
+    printf("%s\n", buf_name);
+
+    snprintf(buf_name, 32, "tcprcv%s:%d", src_ip, src_port);
+    sk->rcvbuf = rte_ring_create(buf_name, RING_SIZE, rte_socket_id(), 0);
+    printf("%s\n", buf_name);
 
     uint32_t next_seed = time(NULL);
     sk->snd_nxt = rand_r(&next_seed) % TCP_MAX_SEQ;
@@ -182,7 +185,7 @@ int tcp_handle_syn_rcvd(struct sock* sk, struct rte_tcp_hdr* tcphdr) {
         sk->status = TCP_STATUS_ESTABLISHED;
 
         // accept
-        struct sock* listener = get_listen_sock(sk->dport);
+        struct sock* listener = get_listen_sock(sk->dip, sk->dport);
         if (listener == NULL) {
             rte_exit(EXIT_FAILURE, "get_listen_sock failed\n");
         }
@@ -448,7 +451,7 @@ int main_tcp_server(UN_USED void* arg) {
     struct sockaddr_in servaddr;
     memset(&servaddr, 0, sizeof(struct sockaddr));
     servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    servaddr.sin_addr.s_addr = local_ip;
     servaddr.sin_port = htons(Server_Port);
     net_bind(listenfd, (struct sockaddr*)&servaddr, sizeof(servaddr));
 
@@ -495,10 +498,11 @@ int main_tcp_server(UN_USED void* arg) {
 }
 
 int tcp_server_out(void) {
-    struct sock* table = get_sock_table();
+    struct net_key* key = NULL;
+	struct sock* sk = NULL;
+	uint32_t next = 0;
 
-    struct sock* sk;
-    for (sk = table; sk != NULL; sk = sk->next) {
+	while (rte_hash_iterate(get_sock_table(), (const void**)&key, (void**)&sk, &next) >= 0) {
         if (sk->sndbuf == NULL || sk->protocol != IPPROTO_TCP)
             continue; // listener
 

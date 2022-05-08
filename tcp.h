@@ -51,7 +51,6 @@ struct tcp_fragment {
     uint32_t data_len;
 };
 
-
 int tcp_pkt_handler(struct rte_mbuf* tcpmbuf);
 
 struct sock* tcp_sock_create(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport);
