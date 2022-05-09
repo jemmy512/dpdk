@@ -26,7 +26,7 @@ int main(int argc, char* argv[]) {
 
     init_server_context();
     init_port();
-    // init_arp_timer();
+    init_arp_timer();
     // init_kni();
 
     launch_servers();
@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
     struct rte_mbuf* tx_mbuf[BURST_SIZE];
 
     while (1) {
-        // arp_timer_tick();
+        arp_timer_tick();
 
         unsigned nb_rx = rte_eth_rx_burst(get_dpdk_port(), 0, rx_mbuf, BURST_SIZE);
         if (nb_rx > BURST_SIZE) {
@@ -88,17 +88,17 @@ int pkt_handler(UN_USED void* arg) {
                 rte_kni_tx_burst(get_kni(), &mbufs[i], 1);
             }
             else if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP)) {
-                // arp_pkt_handler(mbufs[i]);
+                arp_pkt_handler(mbufs[i]);
             } else if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4)) {
-                // if (iphdr->next_proto_id == IPPROTO_UDP) {
-                //     udp_pkt_handler(mbufs[i]);
-                // } else
-                if (iphdr->next_proto_id == IPPROTO_TCP) {
+                if (iphdr->next_proto_id == IPPROTO_UDP) {
+                    udp_pkt_handler(mbufs[i]);
+                }
+                else if (iphdr->next_proto_id == IPPROTO_TCP) {
                     tcp_pkt_handler(mbufs[i]);
                 }
-                // else if (iphdr->next_proto_id == IPPROTO_ICMP) {
-                //     icmp_pkt_handler(mbufs[i]);
-                // }
+                else if (iphdr->next_proto_id == IPPROTO_ICMP) {
+                    icmp_pkt_handler(mbufs[i]);
+                }
                 else {
                     rte_pktmbuf_free(mbufs[i]);
                 }
@@ -115,7 +115,7 @@ int pkt_handler(UN_USED void* arg) {
 
         // udp_server_out();
 
-        // tcp_server_out();
+        tcp_server_out();
     }
 
     return 0;
@@ -165,5 +165,5 @@ void launch_servers(void) {
 
     rte_eal_remote_launch(pkt_handler, NULL, lcore_1);
     rte_eal_remote_launch(main_tcp_server, NULL, lcore_2);
-    // rte_eal_remote_launch(main_udp_server, NULL, lcore_2);
+    // rte_eal_remote_launch(main_udp_server, NULL, lcore_3);
 }

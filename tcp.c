@@ -7,6 +7,7 @@
 #include <rte_tcp.h>
 #include <rte_arp.h>
 #include <rte_hash.h>
+#include <assert.h>
 
 #include "list.h"
 #include "socket.h"
@@ -39,8 +40,14 @@ int tcp_pkt_handler(struct rte_mbuf* tcpmbuf) {
     struct sock* sk = get_tcp_sock(
         iphdr->src_addr, iphdr->dst_addr, tcphdr->src_port, tcphdr->dst_port
     );
+    if (sk != NULL) {
+        assert(sk->sndbuf != NULL);
+    }
     if (sk == NULL) {
         sk = get_listen_sock(iphdr->dst_addr, tcphdr->dst_port);
+        if (sk != NULL) {
+            assert(sk->sndbuf == NULL);
+        }
     }
     if (sk == NULL) {
         return -2;
@@ -87,8 +94,6 @@ int tcp_pkt_handler(struct rte_mbuf* tcpmbuf) {
             break;
     }
 
-    printf("tcp_pkt_handler done\n");
-
     return 0;
 }
 
@@ -112,15 +117,13 @@ struct sock* tcp_sock_create(uint32_t sip, uint32_t dip, uint16_t sport, uint16_
     char* src_ip = inet_ntoa(saddr);
     uint16_t src_port = ntohs(sport);
 
-    char buf_name[32] = {0};
+    char snd_name[32] = {0};
+    snprintf(snd_name, 32, "tcpsnd%s:%d", src_ip, src_port);
+    sk->sndbuf = rte_ring_create(snd_name, RING_SIZE, rte_socket_id(), 0);
 
-    snprintf(buf_name, 32, "tcpsnd%s:%d", src_ip, src_port);
-    sk->sndbuf = rte_ring_create(buf_name, RING_SIZE, rte_socket_id(), 0);
-    printf("%s\n", buf_name);
-
-    snprintf(buf_name, 32, "tcprcv%s:%d", src_ip, src_port);
-    sk->rcvbuf = rte_ring_create(buf_name, RING_SIZE, rte_socket_id(), 0);
-    printf("%s\n", buf_name);
+    char rcv_name[32] = {0};
+    snprintf(rcv_name, 32, "tcprcv%s:%d", src_ip, src_port);
+    sk->rcvbuf = rte_ring_create(rcv_name, RING_SIZE, rte_socket_id(), 0);
 
     uint32_t next_seed = time(NULL);
     sk->snd_nxt = rand_r(&next_seed) % TCP_MAX_SEQ;
@@ -146,6 +149,7 @@ int tcp_handle_listen(struct sock* sk, struct rte_tcp_hdr* tcphdr, struct rte_ip
         struct sock* syn_sk = tcp_sock_create(
             iphdr->src_addr, iphdr->dst_addr, tcphdr->src_port, tcphdr->dst_port
         );
+        assert(syn_sk->sndbuf != NULL);
         sock_add(syn_sk);
 
         struct tcp_fragment* frag = rte_malloc("tcp_fragment", sizeof(struct tcp_fragment), 0);
@@ -190,6 +194,8 @@ int tcp_handle_syn_rcvd(struct sock* sk, struct rte_tcp_hdr* tcphdr) {
             rte_exit(EXIT_FAILURE, "get_listen_sock failed\n");
         }
 
+        add_accept_sock(listener, sk);
+
         pthread_mutex_lock(&listener->mutex);
         pthread_cond_signal(&listener->cond);
         pthread_mutex_unlock(&listener->mutex);
@@ -201,6 +207,8 @@ int tcp_handle_syn_rcvd(struct sock* sk, struct rte_tcp_hdr* tcphdr) {
 }
 
 int tcp_handle_established(struct sock* sk, struct rte_tcp_hdr* tcphdr, int tcplen) {
+    assert(sk->sndbuf != NULL);
+
     if (tcphdr->tcp_flags & RTE_TCP_SYN_FLAG) {
 
     }
@@ -386,9 +394,6 @@ int tcp_send_ack(struct sock* sk, struct rte_tcp_hdr* tcphdr) {
     frag->dport = tcphdr->src_port;
     frag->sport = tcphdr->dst_port;
 
-    // remote
-    printf("tcp_send_ack: %d, %d\n", sk->rcv_nxt, ntohs(tcphdr->sent_seq));
-
     frag->acknum = sk->rcv_nxt;
     frag->seqnum = sk->snd_nxt;
 
@@ -465,7 +470,6 @@ int main_tcp_server(UN_USED void* arg) {
 
     char buff[BUFFER_SIZE] = {0};
     while (1) {
-        printf("epoll going to sleep\n");
         int nb_ready = nepoll_wait(epfd, events, 128, -1);
         printf("epoll wake up, %d\n", nb_ready);
 
@@ -499,10 +503,10 @@ int main_tcp_server(UN_USED void* arg) {
 
 int tcp_server_out(void) {
     struct net_key* key = NULL;
-	struct sock* sk = NULL;
-	uint32_t next = 0;
+    struct sock* sk = NULL;
+    uint32_t next = 0;
 
-	while (rte_hash_iterate(get_sock_table(), (const void**)&key, (void**)&sk, &next) >= 0) {
+    while (rte_hash_iterate(get_sock_table(), (const void**)&key, (void**)&sk, &next) >= 0) {
         if (sk->sndbuf == NULL || sk->protocol != IPPROTO_TCP)
             continue; // listener
 

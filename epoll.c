@@ -229,7 +229,7 @@ int epoll_callback(struct eventpoll *ep, int sockid, uint32_t event) {
 
     struct epitem *epi = RB_FIND(_epoll_rb_socket, &ep->rbr, &item);
     if (!epi) {
-        printf("rbtree not exist\n");
+        printf("epi not exist\n");
         return -1;
     }
     if (epi->in_rdlist) {

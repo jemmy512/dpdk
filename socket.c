@@ -12,10 +12,31 @@
 #include "socket.h"
 #include "context.h"
 
+#define Table_Size 8192
+
+#define Make_Key(sk) \
+struct sock_key key = { \
+    .sip = sk->sip, \
+    .dip = sk->dip, \
+    .sport = sk->sport, \
+    .dport = sk->dport, \
+    .protocol = sk->protocol \
+};
+
 static struct rte_hash* sock_table = NULL;
 
 void init_sock_table(void) {
-    sock_table = make_sock_table("sock hash table");
+    struct rte_hash_parameters params = {
+        .name = "sock hash table",
+        .entries = Table_Size,
+        .key_len = sizeof(struct sock_key),
+        .hash_func = rte_jhash,
+        .hash_func_init_val = 0,
+        .socket_id = rte_socket_id(),
+        .extra_flag = RTE_HASH_EXTRA_FLAGS_RW_CONCURRENCY
+    };
+
+    sock_table = rte_hash_create(&params);
 }
 
 struct rte_hash* get_sock_table(void) {
@@ -23,29 +44,12 @@ struct rte_hash* get_sock_table(void) {
 }
 
 void sock_add(struct sock* sk) {
-    // list_add(sk, sock_table);
-    struct sock_key key = {
-        .sip = sk->sip,
-        .dip = sk->dip,
-        .sport = sk->sport,
-        .dport = sk->dport,
-        .protocol = sk->protocol
-    };
-    printf("sock add, ");
-    print_key(&key);
-
+    Make_Key(sk);
     hash_add(get_sock_table(), &key, sk);
 }
 
 void sock_rm(struct sock* sk) {
-    // list_rm(sk, get_sock_table());
-    struct sock_key key = {
-        .sip = sk->sip,
-        .dip = sk->dip,
-        .sport = sk->sport,
-        .dport = sk->dport,
-        .protocol = sk->protocol
-    };
+    Make_Key(sk);
     hash_rm(get_sock_table(), &key);
 }
 
@@ -53,50 +57,40 @@ static struct sock* get_sock(rte_be32_t sip, rte_be32_t dip, rte_be16_t sport, r
     if (protocol == IPPROTO_UDP)
         return NULL;
 
-    struct sock_key key = {
-        .sip = sip,
-        .dip = dip,
-        .sport = sport,
-        .dport = dport,
-        .protocol = protocol
-    };
-    printf("get sock, ");
-    print_key(&key);
+    struct sock_key* key = rte_malloc("sock key", sizeof(struct sock_key), 0);
+    if (key == NULL) {
+        printf("rte_malloc sock key failed\n");
+        return NULL;
+    }
+    memset(key, 0, sizeof(struct sock_key));
+    key->sip = sip;
+    key->dip = dip;
+    key->sport = sport;
+    key->dport = dport;
+    key->protocol = protocol;
 
-    return hash_find(get_sock_table(), &key);
+    // TODO crash
+    // struct sock_key key = {
+    //     .sip = sip,
+    //     .dip = dip,
+    //     .sport = sport,
+    //     .dport = dport,
+    //     .protocol = protocol
+    // };
+
+    return hash_find(get_sock_table(), key);
 }
 
 struct sock* get_tcp_sock(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport) {
     return get_sock(sip, dip, sport, dport, IPPROTO_TCP);
-
-    // for (struct sock* sk = get_sock_table(); sk != NULL; sk = sk->next) {
-    //     if (sk->sip == sip && sk->dip == dip && sk->sport == sport && sk->dport == dport) {
-    //         sock = sk;
-    //         break;
-    //     }
-    // }
 }
 
 struct sock* get_udp_sock(uint32_t sip, uint16_t sport) {
     return get_sock(sip, 0, sport, 0, IPPROTO_UDP);
-
-    // for (struct sock* sk = get_sock_table(); sk != NULL; sk = sk->next) {
-    //     if (dip == sk->sip && port == sk->sport && proto == sk->protocol) {
-    //         sock = sk;
-    //         break;
-    //     }
-    // }
 }
 
 struct sock* get_accept_sock(struct sock* listensk) {
     struct sock* sk = NULL;
-
-    // for (struct sock* sk = get_sock_table(); sk != NULL; sk = sk->next) {
-    //     if (port == sk->dport && sk->fd == -1) {
-    //         sock = sk;
-    //         break;
-    //     }
-    // }
 
     if (!LIST_EMPTY(&listensk->accept_head)) {
         sk = LIST_FIRST(&listensk->accept_head);
@@ -113,16 +107,6 @@ int add_accept_sock(struct sock* listensk, struct sock *sk) {
 
 struct sock* get_listen_sock(uint32_t sip, uint16_t sport) {
     return get_sock(sip, 0, sport, 0, IPPROTO_TCP);
-    // struct sock* sock = NULL;
-
-    // for (struct sock* sk = get_sock_table(); sk != NULL; sk = sk->next) {
-    //     if (sk->sport == port && sk->status == TCP_STATUS_LISTEN) {
-    //         sock = sk;
-    //         break;
-    //     }
-    // }
-
-    // return sock;
 }
 
 int net_socket(UN_USED int domain, int type, UN_USED uint8_t protocol) {
@@ -227,6 +211,8 @@ int net_accept(int sockfd, struct sockaddr* addr, UN_USED socklen_t* addrlen) {
             pthread_cond_wait(&sk->cond, &sk->mutex);
         }
         pthread_mutex_unlock(&sk->mutex);
+
+        debug_ip_port("get acpt sk:", acpt->sip, acpt->dip, acpt->sport, acpt->dport, acpt->protocol);
 
         // distinguish syn_rcvd sk and established sk
         acpt->fd = get_fd();
@@ -421,6 +407,7 @@ int net_close(int fd) {
         if (sk->sndbuf) {
             rte_ring_free(sk->sndbuf);
         }
+        sock_rm(sk);
     } else if (sk->protocol == IPPROTO_TCP) {
         if (sk->status != TCP_STATUS_LISTEN) {
             struct tcp_fragment* frag = rte_malloc("tcp_fragment", sizeof(struct tcp_fragment), 0);
@@ -445,14 +432,13 @@ int net_close(int fd) {
         }
     }
 
-    sock_rm(sk);
     put_fd(fd);
 
     return 0;
 }
 
 void print_key(struct sock_key* sk) {
-    debug_ip_port("sk key", sk->sip, sk->dip, sk->sport, sk->dport, sk->protocol);
+    debug_ip_port("", sk->sip, sk->dip, sk->sport, sk->dport, sk->protocol);
 }
 
 void debug_ip_port(const char* name, uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport, uint8_t protocol) {

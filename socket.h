@@ -44,25 +44,19 @@ struct sock {
     uint8_t smac[RTE_ETHER_ADDR_LEN];
     uint8_t dmac[RTE_ETHER_ADDR_LEN];
 
-    uint64_t status;
+    uint32_t status;
 
     struct sock* prev;
     struct sock* next;
     wait_queue_entry_t wait_queue;
 
-    union {
-        struct {
-            LIST_HEAD(, sock) accept_head;
-            LIST_ENTRY(sock) accept_entry;
-        };
+    LIST_HEAD(, sock) accept_head;
+    LIST_ENTRY(sock) accept_entry;
 
-        struct {
-            uint32_t snd_nxt;
-            uint32_t rcv_nxt;
-            struct rte_ring* sndbuf;
-            struct rte_ring* rcvbuf;
-        };
-    };
+    uint32_t snd_nxt;
+    uint32_t rcv_nxt;
+    struct rte_ring* sndbuf;
+    struct rte_ring* rcvbuf;
 
     pthread_cond_t cond;
     pthread_mutex_t mutex;
