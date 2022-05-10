@@ -98,7 +98,7 @@ int udp_pkt_handler(struct rte_mbuf* udpmbuf) {
         return -3;
     }
 
-    // debug_ip_port("udp_pkt_handler", iphdr->src_addr, iphdr->dst_addr, udphdr->src_port, udphdr->dst_port, 0);
+    debug_ip_port("udp_pkt_handler", iphdr->src_addr, iphdr->dst_addr, udphdr->src_port, udphdr->dst_port, 0);
 
     struct offload* ol = rte_malloc("offload", sizeof(struct offload), 0);
     if (ol == NULL) {
@@ -146,7 +146,6 @@ int main_udp_server(UN_USED void* arg) {
 
     while (1) {
         for (int i = 0; i < Host_Size; ++i) {
-            printf("********** udp\n");
             int buf_len = net_recvfrom(listen_fds[i], buf, UDP_BUF_LEN, 0, (struct sockaddr*)&clientaddr, &addrlen);
             if (buf_len <= 0) {
                 continue;
@@ -161,7 +160,7 @@ int main_udp_server(UN_USED void* arg) {
                 //     break;
                 // }
                 default: {
-                    printf("****** udp echo: %s\n", buf);
+                    printf("udp echo: %s\n", buf);
                     break;
                 }
             }

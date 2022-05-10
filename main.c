@@ -113,7 +113,7 @@ int pkt_handler(UN_USED void* arg) {
 
         // kni_out();
 
-        // udp_server_out();
+        udp_server_out();
 
         tcp_server_out();
     }
@@ -164,6 +164,6 @@ void launch_servers(void) {
     printf("lcores: %d, %d, %d\n", lcore_1, lcore_2, lcore_3);
 
     rte_eal_remote_launch(pkt_handler, NULL, lcore_1);
-    rte_eal_remote_launch(main_tcp_server, NULL, lcore_2);
-    // rte_eal_remote_launch(main_udp_server, NULL, lcore_3);
+    // rte_eal_remote_launch(main_tcp_server, NULL, lcore_2);
+    rte_eal_remote_launch(main_udp_server, NULL, lcore_2);
 }

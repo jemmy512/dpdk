@@ -97,13 +97,8 @@ void icmp_pkt_handler(struct rte_mbuf* mbuf) {
     );
     struct rte_icmp_hdr* icmphdr = (struct rte_icmp_hdr*)(iphdr + 1);
 
-    struct in_addr addr;
-    addr.s_addr = iphdr->src_addr;
-    printf("icmp ---> src: %s ", inet_ntoa(addr));
-
     if (icmphdr->icmp_type == RTE_IP_ICMP_ECHO_REQUEST) {
-        addr.s_addr = iphdr->dst_addr;
-        printf(" local: %s, type: %d\n", inet_ntoa(addr), icmphdr->icmp_type);
+        debug_ip_port("icmp ~~~", iphdr->src_addr, iphdr->dst_addr, 0, 0, icmphdr->icmp_type);
 
         uint16_t data_len = ntohs(iphdr->total_length) - sizeof(struct rte_ipv4_hdr) - sizeof(struct rte_icmp_hdr);
 

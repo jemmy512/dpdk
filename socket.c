@@ -15,13 +15,17 @@
 #define Table_Size 8192
 
 #define Make_Key(sk) \
-struct sock_key key = { \
-    .sip = sk->sip, \
-    .dip = sk->dip, \
-    .sport = sk->sport, \
-    .dport = sk->dport, \
-    .protocol = sk->protocol \
-};
+struct sock_key* key = rte_malloc("sock key", sizeof(struct sock_key), 0); \
+if (key == NULL) { \
+    printf("rte_malloc sock key failed\n"); \
+    return; \
+} \
+memset(key, 0, sizeof(struct sock_key)); \
+key->sip = sk->sip; \
+key->dip = sk->dip; \
+key->sport = sk->sport; \
+key->dport = sk->dport; \
+key->protocol = sk->protocol;
 
 static struct rte_hash* sock_table = NULL;
 
@@ -45,17 +49,21 @@ struct rte_hash* get_sock_table(void) {
 
 void sock_add(struct sock* sk) {
     Make_Key(sk);
-    hash_add(get_sock_table(), &key, sk);
+    hash_add(get_sock_table(), key, sk);
+    rte_free(key);
 }
 
 void sock_rm(struct sock* sk) {
     Make_Key(sk);
-    hash_rm(get_sock_table(), &key);
+    hash_rm(get_sock_table(), key);
+    rte_free(key);
 }
 
 static struct sock* get_sock(rte_be32_t sip, rte_be32_t dip, rte_be16_t sport, rte_be16_t dport, uint8_t protocol) {
-    if (protocol == IPPROTO_UDP)
+    if (sip != get_local_ip())
         return NULL;
+    // if (protocol == IPPROTO_UDP)
+    //     return NULL;
 
     struct sock_key* key = rte_malloc("sock key", sizeof(struct sock_key), 0);
     if (key == NULL) {
@@ -69,16 +77,10 @@ static struct sock* get_sock(rte_be32_t sip, rte_be32_t dip, rte_be16_t sport, r
     key->dport = dport;
     key->protocol = protocol;
 
-    // TODO crash
-    // struct sock_key key = {
-    //     .sip = sip,
-    //     .dip = dip,
-    //     .sport = sport,
-    //     .dport = dport,
-    //     .protocol = protocol
-    // };
+    struct sock* sk = hash_find(get_sock_table(), key);
+    rte_free(key);
 
-    return hash_find(get_sock_table(), key);
+    return sk;
 }
 
 struct sock* get_tcp_sock(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport) {
@@ -212,7 +214,7 @@ int net_accept(int sockfd, struct sockaddr* addr, UN_USED socklen_t* addrlen) {
         }
         pthread_mutex_unlock(&sk->mutex);
 
-        debug_ip_port("get acpt sk:", acpt->sip, acpt->dip, acpt->sport, acpt->dport, acpt->protocol);
+        debug_ip_port("get acpt sk", acpt->sip, acpt->dip, acpt->sport, acpt->dport, acpt->protocol);
 
         // distinguish syn_rcvd sk and established sk
         acpt->fd = get_fd();
@@ -437,14 +439,14 @@ int net_close(int fd) {
     return 0;
 }
 
-void print_key(struct sock_key* sk) {
-    debug_ip_port("", sk->sip, sk->dip, sk->sport, sk->dport, sk->protocol);
+void print_key(const char* name, struct sock_key* sk) {
+    debug_ip_port(name, sk->sip, sk->dip, sk->sport, sk->dport, sk->protocol);
 }
 
 void debug_ip_port(const char* name, uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport, uint8_t protocol) {
     struct in_addr saddr;
     saddr.s_addr = sip;
-    printf("%s --- src: %s:%d", name, inet_ntoa(saddr), ntohs(sport));
+    printf("%s src: %s:%d", name, inet_ntoa(saddr), ntohs(sport));
 
     struct in_addr daddr;
     daddr.s_addr = dip;

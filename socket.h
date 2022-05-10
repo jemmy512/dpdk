@@ -86,5 +86,5 @@ int add_accept_sock(struct sock* listensk, struct sock *sk);
 void sock_add(struct sock* sk);
 void sock_rm(struct sock* sk);
 
-void print_key(struct sock_key* sk);
+void print_key(const char* name, struct sock_key* sk);
 void debug_ip_port(const char* name, uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport, uint8_t protocol);

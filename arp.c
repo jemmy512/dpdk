@@ -24,7 +24,7 @@ static void print_ip_mac(const char* name, uint32_t ip, uint8_t* mac) {
     char buf[RTE_ETHER_ADDR_FMT_SIZE];
     rte_ether_format_addr(buf, RTE_ETHER_ADDR_FMT_SIZE, (struct rte_ether_addr*)mac);
 
-    printf("%s --> ip: %15s, mac: %s\n", name, inet_ntoa(addr), buf);
+    printf("%s +++> ip: %13s, mac: %s\n", name, inet_ntoa(addr), buf);
 }
 
 struct arp_table* get_arp_table(void) {
@@ -157,7 +157,7 @@ void debug_arp_table(void) {
 
     if (arphdr->arp_data.arp_tip == get_local_ip()) {
         if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REQUEST)) {
-            printf("arp --> recv req\n");
+            print_ip_mac("arp rcv req", arphdr->arp_data.arp_tip, arphdr->arp_data.arp_tha.addr_bytes);
 
             struct rte_mbuf* arpbuf = make_arp_mbuf(
                 RTE_ARP_OP_REPLY,
@@ -169,10 +169,9 @@ void debug_arp_table(void) {
             struct inout_ring* ring = get_server_ring();
             rte_ring_mp_enqueue_burst(ring->out, (void**)&arpbuf, 1, NULL);
         } else if (arphdr->arp_opcode == rte_cpu_to_be_16(RTE_ARP_OP_REPLY)) {
-            printf("arp --> recv reply\n");
+            print_ip_mac("arp rcv reply", arphdr->arp_data.arp_sip, arphdr->arp_data.arp_sha.addr_bytes);
 
             uint8_t* mac = get_arp_mac(arphdr->arp_data.arp_sip);
-
             if (mac == NULL) {
                 arp_table_add(arphdr->arp_data.arp_sip, arphdr->arp_data.arp_sha.addr_bytes, 0);
             }
