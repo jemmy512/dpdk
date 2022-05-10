@@ -220,7 +220,7 @@ void arp_request_timer_cb(UN_USED struct rte_timer* timer, UN_USED void* arg) {
             arpbuf = make_arp_mbuf(RTE_ARP_OP_REQUEST, dst_mac, get_local_ip(), dstip);
         }
 
-        struct inout_ring *ring = get_server_ring();
+        struct inout_ring* ring = get_server_ring();
         rte_ring_mp_enqueue_burst(ring->out, (void **)&arpbuf, 1, NULL);
     }
 }

@@ -13,9 +13,9 @@
 int net_socket(UN_USED int domain, int type, UN_USED uint8_t protocol);
 int net_bind(int sockfd, const struct sockaddr* addr, UN_USED socklen_t addrlen);
 int net_listen(int sockfd, UN_USED int backlog);
-int net_accept(int sockfd, struct sockaddr *addr, UN_USED socklen_t *addrlen);
-ssize_t net_send(int sockfd, const void *buf, size_t len,UN_USED int flags);
-ssize_t net_recv(int sockfd, void *buf, size_t len, UN_USED int flags);
+int net_accept(int sockfd, struct sockaddr* addr, UN_USED socklen_t* addrlen);
+ssize_t net_send(int sockfd, const void* buf, size_t len,UN_USED int flags);
+ssize_t net_recv(int sockfd, void* buf, size_t len, UN_USED int flags);
 int net_close(int fd);
 
 ssize_t net_recvfrom(
@@ -81,7 +81,7 @@ struct sock* get_udp_sock(uint32_t sip, uint16_t sport);
 struct sock* get_tcp_sock(uint32_t sip, uint32_t dip, uint16_t sport, uint16_t dport);
 struct sock* get_listen_sock(uint32_t sip, uint16_t sport);
 struct sock* get_accept_sock(struct sock* sk);
-int add_accept_sock(struct sock* listensk, struct sock *sk);
+int add_accept_sock(struct sock* listensk, struct sock* sk);
 
 void sock_add(struct sock* sk);
 void sock_rm(struct sock* sk);

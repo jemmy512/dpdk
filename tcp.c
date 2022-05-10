@@ -18,7 +18,7 @@
 #include "config.h"
 
 
-#define BUFFER_SIZE	1024
+#define BUFFER_SIZE    1024
 
 #define Server_Port 9999
 

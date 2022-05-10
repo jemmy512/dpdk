@@ -180,10 +180,10 @@ int main_udp_server(UN_USED void* arg) {
 
 int udp_server_out(void) {
     struct net_key* key = NULL;
-	struct sock* sk = NULL;
-	uint32_t next = 0;
+    struct sock* sk = NULL;
+    uint32_t next = 0;
 
-	while (rte_hash_iterate(get_sock_table(), (const void **)&key, (void**)&sk, &next) >= 0) {
+    while (rte_hash_iterate(get_sock_table(), (const void **)&key, (void**)&sk, &next) >= 0) {
         if (sk->protocol != IPPROTO_UDP)
             continue;
 

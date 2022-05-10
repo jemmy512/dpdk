@@ -102,7 +102,7 @@ struct sock* get_accept_sock(struct sock* listensk) {
     return sk;
 }
 
-int add_accept_sock(struct sock* listensk, struct sock *sk) {
+int add_accept_sock(struct sock* listensk, struct sock* sk) {
     LIST_INSERT_HEAD(&listensk->accept_head, sk, accept_entry);
     return 0;
 }

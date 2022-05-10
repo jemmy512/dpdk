@@ -30,7 +30,7 @@ enum EPOLL_EVENTS {
 #define EPOLL_CTL_MOD    3
 
 typedef union epoll_data {
-    void *ptr;
+    void* ptr;
     int fd;
     uint32_t u32;
     uint64_t u64;
@@ -47,7 +47,7 @@ struct epitem {
     wait_queue_entry_t wait_entry;
     int in_rdlist;
 
-	int wait_id;
+    int wait_id;
     int sockfd;
     struct epoll_event event;
 };
@@ -77,6 +77,6 @@ struct eventpoll {
 struct eventpoll* get_epoll(void);
 
 int nepoll_create(int size);
-int nepoll_ctl(int epfd, int op, int sockid, struct epoll_event *event);
-int nepoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout);
-int epoll_callback(struct eventpoll *ep, int sockid, uint32_t event);
+int nepoll_ctl(int epfd, int op, int sockid, struct epoll_event* event);
+int nepoll_wait(int epfd, struct epoll_event* events, int maxevents, int timeout);
+int epoll_callback(struct eventpoll* ep, int sockid, uint32_t event);

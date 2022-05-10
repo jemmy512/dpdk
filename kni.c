@@ -17,12 +17,12 @@
 
 #define PKT_BURST_SZ 32
 
-struct rte_kni *global_kni = NULL;
+struct rte_kni* global_kni = NULL;
 
 static pthread_t kni_link_tid;
 
-static void log_link_state(struct rte_kni *kni, int prev, struct rte_eth_link *link);
-static void* monitor_port_link_status(UN_USED void *arg);
+static void log_link_state(struct rte_kni* kni, int prev, struct rte_eth_link* link);
+static void* monitor_port_link_status(UN_USED void* arg);
 
 struct rte_kni* get_kni(void) {
     assert(global_kni);
@@ -59,7 +59,7 @@ static int config_mac_address(uint16_t port_id, uint8_t mac_addr[]) {
         return -EINVAL;
     }
 
-    ret = rte_eth_dev_default_mac_addr_set(port_id, (struct rte_ether_addr *)mac_addr);
+    ret = rte_eth_dev_default_mac_addr_set(port_id, (struct rte_ether_addr*)mac_addr);
     if (ret < 0) {
         printf("config_mac_address, failed to config mac_addr for port %d, mac: %s\n",
             port_id, ether_ntoa((struct ether_addr*)mac_addr)
@@ -73,8 +73,8 @@ static int config_mac_address(uint16_t port_id, uint8_t mac_addr[]) {
     return ret;
 }
 
-struct rte_kni *alloc_kni(void) {
-    struct rte_kni *kni_handle = NULL;
+struct rte_kni* alloc_kni(void) {
+    struct rte_kni* kni_handle = NULL;
 
     struct rte_kni_conf conf;
     memset(&conf, 0, sizeof(conf));
@@ -83,7 +83,7 @@ struct rte_kni *alloc_kni(void) {
     snprintf(conf.name, RTE_KNI_NAMESIZE, "vEth%u", port_id);
     conf.group_id = port_id;
     conf.mbuf_size = MAX_PACKET_SIZE;
-    rte_eth_macaddr_get(port_id, (struct rte_ether_addr *)conf.mac_addr);
+    rte_eth_macaddr_get(port_id, (struct rte_ether_addr*)conf.mac_addr);
     rte_eth_dev_get_mtu(port_id, &conf.mtu);
 
     struct rte_kni_ops ops;
@@ -142,7 +142,7 @@ int is_fwd_to_kni(struct rte_ether_hdr* ehdr) {
 }
 
 void kni_out(void) {
-    struct rte_mbuf *mbufs[PKT_BURST_SZ];
+    struct rte_mbuf* mbufs[PKT_BURST_SZ];
     int nb_rx = rte_kni_rx_burst(get_kni(), mbufs, PKT_BURST_SZ);
     if (nb_rx > PKT_BURST_SZ) {
         return;
@@ -150,7 +150,7 @@ void kni_out(void) {
 
     if (nb_rx > 0) {
         for (int i = 0; i < nb_rx; ++i) {
-            struct rte_ether_hdr *ehdr = rte_pktmbuf_mtod(mbufs[i], struct rte_ether_hdr*);
+            struct rte_ether_hdr* ehdr = rte_pktmbuf_mtod(mbufs[i], struct rte_ether_hdr*);
             if (ehdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4)) {
                 struct rte_ipv4_hdr* iphdr = (struct rte_ipv4_hdr*)(ehdr + 1);
                 struct in_addr addr;
@@ -169,7 +169,7 @@ void kni_out(void) {
     }
 }
 
-static void log_link_state(struct rte_kni *kni, int prev, struct rte_eth_link *link)
+static void log_link_state(struct rte_kni* kni, int prev, struct rte_eth_link* link)
 {
     if (kni == NULL || link == NULL)
         return;
@@ -186,7 +186,7 @@ static void log_link_state(struct rte_kni *kni, int prev, struct rte_eth_link *l
     }
 }
 
-static void* monitor_port_link_status(UN_USED void *arg) {
+static void* monitor_port_link_status(UN_USED void* arg) {
     int ret;
     int port_id = get_dpdk_port();
     struct rte_eth_link link;

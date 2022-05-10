@@ -6,7 +6,7 @@
 
 /* hping3 -c 1200 -d 120 -S -w 64 -p 9999 --flood --rand-source 192.168.4.94 */
 
-#define CAPTURE_WINDOWS		256
+#define CAPTURE_WINDOWS        256
 
 static double threashold = 1200.0;
 

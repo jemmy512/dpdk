@@ -8,7 +8,7 @@
 
 static struct eventpoll* g_epoll = NULL;
 
-static int sockfd_cmp(struct epitem *ep1, struct epitem *ep2) {
+static int sockfd_cmp(struct epitem* ep1, struct epitem* ep2) {
     if (ep1->sockfd < ep2->sockfd)
         return -1;
     else
@@ -26,7 +26,7 @@ int nepoll_create(int size) {
 
     int epfd = get_fd();
 
-    struct eventpoll *ep = (struct eventpoll*)rte_malloc("eventpoll", sizeof(struct eventpoll), 0);
+    struct eventpoll* ep = (struct eventpoll*)rte_malloc("eventpoll", sizeof(struct eventpoll), 0);
     if (!ep) {
         put_fd(epfd);
         return -1;
@@ -75,8 +75,8 @@ int nepoll_create(int size) {
     return epfd;
 }
 
-int nepoll_ctl(int epfd, int op, int sockId, struct epoll_event *event) {
-    struct eventpoll *ep = (struct eventpoll*)find_fd(epfd);
+int nepoll_ctl(int epfd, int op, int sockId, struct epoll_event* event) {
+    struct eventpoll* ep = (struct eventpoll*)find_fd(epfd);
     if (!ep || (!event && op != EPOLL_CTL_DEL)) {
         rte_errno = -EINVAL;
         return -1;
@@ -88,7 +88,7 @@ int nepoll_ctl(int epfd, int op, int sockId, struct epoll_event *event) {
     if (op == EPOLL_CTL_ADD) {
         pthread_mutex_lock(&ep->mtx);
 
-        struct epitem *epi = RB_FIND(_epoll_rb_socket, &ep->rbr, &item);
+        struct epitem* epi = RB_FIND(_epoll_rb_socket, &ep->rbr, &item);
         if (epi) {
             pthread_mutex_unlock(&ep->mtx);
             return -1;
@@ -112,7 +112,7 @@ int nepoll_ctl(int epfd, int op, int sockId, struct epoll_event *event) {
 
     } else if (op == EPOLL_CTL_DEL) {
         pthread_mutex_lock(&ep->mtx);
-        struct epitem *epi = RB_FIND(_epoll_rb_socket, &ep->rbr, &item);
+        struct epitem* epi = RB_FIND(_epoll_rb_socket, &ep->rbr, &item);
         if (!epi) {
             pthread_mutex_unlock(&ep->mtx);
             return -1;
@@ -130,7 +130,7 @@ int nepoll_ctl(int epfd, int op, int sockId, struct epoll_event *event) {
         pthread_mutex_unlock(&ep->mtx);
 
     } else if (op == EPOLL_CTL_MOD) {
-        struct epitem *epi = RB_FIND(_epoll_rb_socket, &ep->rbr, &item);
+        struct epitem* epi = RB_FIND(_epoll_rb_socket, &ep->rbr, &item);
         if (epi) {
             epi->event.events = event->events;
             epi->event.events |= EPOLLERR | EPOLLHUP;
@@ -143,8 +143,8 @@ int nepoll_ctl(int epfd, int op, int sockId, struct epoll_event *event) {
     return 0;
 }
 
-int nepoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout) {
-    struct eventpoll *ep = (struct eventpoll*)find_fd(epfd);
+int nepoll_wait(int epfd, struct epoll_event* events, int maxevents, int timeout) {
+    struct eventpoll* ep = (struct eventpoll*)find_fd(epfd);
     if (!ep || !events || maxevents <= 0) {
         rte_errno = -EINVAL;
         return -1;
@@ -207,7 +207,7 @@ int nepoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout
     int i = 0;
 
     while (num != 0 && !LIST_EMPTY(&ep->rdlist)) {
-        struct epitem *epi = LIST_FIRST(&ep->rdlist);
+        struct epitem* epi = LIST_FIRST(&ep->rdlist);
         LIST_REMOVE(epi, rdlink);
         epi->in_rdlist = 0;
 
@@ -223,11 +223,11 @@ int nepoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout
     return cnt;
 }
 
-int epoll_callback(struct eventpoll *ep, int sockid, uint32_t event) {
+int epoll_callback(struct eventpoll* ep, int sockid, uint32_t event) {
     struct epitem item;
     item.sockfd = sockid;
 
-    struct epitem *epi = RB_FIND(_epoll_rb_socket, &ep->rbr, &item);
+    struct epitem* epi = RB_FIND(_epoll_rb_socket, &ep->rbr, &item);
     if (!epi) {
         printf("epi not exist\n");
         return -1;

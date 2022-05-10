@@ -68,8 +68,8 @@ int tcp_send_ack(struct sock* sk, struct rte_tcp_hdr* tcphdr);
 int main_tcp_server(UN_USED void* arg);
 int tcp_server_out(void);
 
-int encode_tcp_pkt(uint8_t *msg, uint32_t sip, uint32_t dip,
-	uint8_t *smac, uint8_t *dmac, struct tcp_fragment *fragment);
+int encode_tcp_pkt(uint8_t* msg, uint32_t sip, uint32_t dip,
+    uint8_t* smac, uint8_t* dmac, struct tcp_fragment* fragment);
 
 struct rte_mbuf* make_tcp_pkt(uint32_t sip, uint32_t dip,
-	uint8_t *smac, uint8_t *dmac, struct tcp_fragment *fragment);
+    uint8_t* smac, uint8_t* dmac, struct tcp_fragment* fragment);
