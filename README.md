@@ -2,19 +2,25 @@
 
 ![](./images/net-server-arch.png)
 
-* socket.c imtplements `socket`, `bind`, `listen`, `send`, `recv`, `sendto`, `recvfrom`, `close` APIs.
-* tcp.c implements tcp package encoding, three ways handshakes, four way handshakes and tcp stream management.
-* udp.c implement UDP package encoding, UDP echo server.
-* icmp.c implements icmp protocol and package encoding.
-* arp.c implemnets arp protocol and packge encoding.
-* dns.c implements dns server.
-* kni.c forwards ARP, ICMP packages to Linux Kernel and let kernel handle these protocols.
-* context.c allocats system memory pool and get local mac.
+## Hierarchy
+* **pkt rx tx** thread is responsible to receive the packages from NIC, stores the packages into systemm input ring; transmit the package sent by application layer to NIC.
 
-ls pci device address:
-> ls /sys/bus/pci/devices/
+* **net stack handler** functions to analysis packges received from lower layer, dispatches the packges to the approprite service layer.
 
-> ls /sys/bus/pci/
+* **tcp udp dns server** apply application sepesific functions.
+
+## Files
+* **socket.c** imtplements `socket`, `bind`, `listen`, `send`, `recv`, `sendto`, `recvfrom`, `close` APIs.
+* **tcp.c** implements tcp package encoding, three ways handshakes, four way handshakes and tcp stream management.
+* **udp.c** implement UDP package encoding, UDP echo server.
+* **icmp.c** implements icmp protocol and package encoding.
+* **arp.c** implements arp protocol and packge encoding.
+* **epoll.c** monitors file descriptors based on event drive design.
+* **dns.c** implements dns server.
+* **kni.c** forwards ARP, ICMP packages to Linux Kernel and let kernel handle these protocols.
+* **context.c** allocats system memory pool and get local mac.
+* **hash.c** uses cuckoo algorithm to store and find sock with key combinad by src_ip, src_port, dst_port, dst_port, protocol.
+
 # TCP
 ```
 0                   1                   2                   3
