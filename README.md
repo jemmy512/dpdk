@@ -21,8 +21,7 @@
 * **context.c** allocats system memory pool and get local mac.
 * **hash.c** uses cuckoo algorithm to store and find sock with key combinad by src_ip, src_port, dst_port, dst_port, protocol.
 
-![](./images/dpdk-mem.png)
-
+![](https://github.com/Jemmy512/software-engineer/blob/master/OpenSource/Image/DPDK/mem.png)
 
 # TCP
 ```
