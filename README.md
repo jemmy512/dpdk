@@ -1,3 +1,7 @@
+# Environment Setup
+
+[Setup](./env-set-up.md)
+
 # Architecture
 
 ![](./images/net-server-arch.png)
@@ -21,9 +25,9 @@
 * **context.c** allocats system memory pool and get local mac.
 * **hash.c** uses cuckoo algorithm to store and find sock with key combinad by src_ip, src_port, dst_port, dst_port, protocol.
 
-[:link: DPDK Source Code Anatomy](https://github.com/Jemmy512/software-engineer/tree/master/OpenSource/DPDK/README.md)
+[:link: DPDK Source Code Anatomy](https://github.com/Jemmy512/software-engineer/blob/master/OpenSource/DPDK/README.md)
 
-![](https://github.com/Jemmy512/software-engineer/blob/master/OpenSource/Image/DPDK/mem.png)
+![](https://raw.githubusercontent.com/Jemmy512/dpdk/master/images/dpdk-mem.png)
 
 # TCP
 ```
